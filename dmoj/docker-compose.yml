@@ -1,7 +1,7 @@
-version: '3.7'
+name: prod-medocker-moj-004
 services:
   db:
-    container_name: dmoj_mysql
+    #container_name: dmoj_mysql
     image: mariadb
     restart: always
     volumes:
@@ -9,7 +9,7 @@ services:
     env_file: [environment/mysql.env, environment/mysql-admin.env]
     networks: [db]
   redis:
-    container_name: dmoj_redis
+    #container_name: dmoj_redis
     image: redis:alpine
     restart: always
     networks: [site]
@@ -17,7 +17,7 @@ services:
     build:
       context: .
       dockerfile: ./texoid/Dockerfile
-    image: ninjaclasher/dmoj-texoid
+    image: moj/dmoj-texoid
     init: true
     restart: unless-stopped
     networks: [site]
@@ -25,7 +25,7 @@ services:
     build:
       context: .
       dockerfile: ./pdfoid/Dockerfile
-    image: ninjaclasher/dmoj-pdfoid
+    image: moj/dmoj-pdfoid
     init: true
     restart: unless-stopped
     networks: [site]
@@ -35,23 +35,23 @@ services:
     build:
       context: .
       dockerfile: ./mathoid/Dockerfile
-    image: ninjaclasher/dmoj-mathoid
+    image: moj/dmoj-mathoid
     init: true
     restart: unless-stopped
     volumes:
-      - ./mathoid/config.yaml:/node_modules/mathoid/config.yaml
+      - ./mathoid/config.yaml:/app/node_modules/mathoid/config.yaml
     networks: [site]
   base:
     build:
       context: .
       dockerfile: ./base/Dockerfile
-    image: ninjaclasher/dmoj-base
+    image: moj/dmoj-base
     network_mode: none
   site:
     build:
       context: .
       dockerfile: ./site/Dockerfile
-    image: ninjaclasher/dmoj-site
+    image: moj/dmoj-site
     init: true
     restart: unless-stopped
     volumes:
@@ -70,7 +70,7 @@ services:
     build:
       context: .
       dockerfile: ./celery/Dockerfile
-    image: ninjaclasher/dmoj-celery
+    image: moj/dmoj-celery
     init: true
     restart: unless-stopped
     volumes:
@@ -85,7 +85,7 @@ services:
     build:
       context: .
       dockerfile: ./bridged/Dockerfile
-    image: ninjaclasher/dmoj-bridged
+    image: moj/dmoj-bridged
     init: true
     restart: unless-stopped
     volumes:
@@ -102,7 +102,7 @@ services:
     build:
       context: .
       dockerfile: ./wsevent/Dockerfile
-    image: ninjaclasher/dmoj-wsevent
+    image: moj/dmoj-wsevent
     init: true
     restart: unless-stopped
     volumes:
@@ -111,11 +111,15 @@ services:
     env_file: [environment/mysql.env, environment/site.env]
     networks: [site, nginx]
   nginx:
-    container_name: dmoj_nginx
+    #container_name: dmoj_nginx
     image: nginx:alpine
     restart: always
+    # Prerequisites for this TLS setup:
+    # 1) DNS A/AAAA records for configured server_name values must point to this host.
+    # 2) Valid certificates must exist under /etc/letsencrypt for those hostnames.
+    # 3) Host firewall/security groups must allow inbound 443.
     ports:
-      - 80:80
+      - 443:443
     volumes:
       - assets:/assets/
       - pdfcache:/pdfcache/
@@ -123,8 +127,24 @@ services:
       - cache:/cache/
       - ./media/:/media/
       - ./nginx/conf.d/:/etc/nginx/conf.d/
-    networks: [nginx]
+      # Certificate files are expected on the host at /etc/letsencrypt.
+      - /etc/letsencrypt/:/etc/letsencrypt:ro
+      - ./nginx/mokla-site/:/var/www/mokla-site/
+    networks: [site,nginx]
     depends_on: [site, wsevent]
+  headscale:
+    image: headscale/headscale:stable
+    container_name: headscale
+    restart: unless-stopped
+    profiles: ["headscale"]
+    volumes:
+      - ./headscale/volume:/var/lib/headscale
+      - ./headscale/config.yaml:/etc/headscale/config.yaml
+    ports:
+      - 8080:8080
+      - 9090:9090
+    command: ["serve"]
+    networks: [nginx]
 networks:
   site:
   db:
