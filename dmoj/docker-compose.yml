@@ -114,6 +114,10 @@ services:
     #container_name: dmoj_nginx
     image: nginx:alpine
     restart: always
+    # Prerequisites for this TLS setup:
+    # 1) DNS A/AAAA records for configured server_name values must point to this host.
+    # 2) Valid certificates must exist under /etc/letsencrypt for those hostnames.
+    # 3) Host firewall/security groups must allow inbound 443.
     ports:
       - 443:443
     volumes:
@@ -123,6 +127,7 @@ services:
       - cache:/cache/
       - ./media/:/media/
       - ./nginx/conf.d/:/etc/nginx/conf.d/
+      # Certificate files are expected on the host at /etc/letsencrypt.
       - /etc/letsencrypt/:/etc/letsencrypt:ro
       - ./nginx/mokla-site/:/var/www/mokla-site/
     networks: [site,nginx]
