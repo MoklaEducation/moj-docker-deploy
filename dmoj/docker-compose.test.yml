@@ -1,0 +1,27 @@
+services:
+  nginx:
+    ports:
+      - "${DMOJ_TEST_HTTPS_PORT:-8443}:443"
+
+  bridged:
+    ports:
+      - "${DMOJ_TEST_BRIDGED_PORT:-19999}:9999"
+    environment:
+      HOST: "${DMOJ_TEST_HOST:-code.test.local}"
+
+  headscale:
+    ports:
+      - "${DMOJ_TEST_HEADSCALE_API_PORT:-18080}:8080"
+      - "${DMOJ_TEST_HEADSCALE_METRICS_PORT:-19090}:9090"
+
+  site:
+    environment:
+      HOST: "${DMOJ_TEST_HOST:-code.test.local}"
+
+  celery:
+    environment:
+      HOST: "${DMOJ_TEST_HOST:-code.test.local}"
+
+  wsevent:
+    environment:
+      HOST: "${DMOJ_TEST_HOST:-code.test.local}"
