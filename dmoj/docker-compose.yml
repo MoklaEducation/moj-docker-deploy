@@ -131,6 +131,7 @@ services:
     image: headscale/headscale:stable
     container_name: headscale
     restart: unless-stopped
+    profiles: ["headscale"]
     volumes:
       - ./headscale/volume:/var/lib/headscale
       - ./headscale/config.yaml:/etc/headscale/config.yaml
