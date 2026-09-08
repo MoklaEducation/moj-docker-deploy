@@ -2,6 +2,14 @@ services:
   nginx:
     ports:
       - "${DMOJ_TEST_HTTPS_PORT:-8443}:443"
+      # Optional for ACME HTTP-01 on a public test host.
+      # If needed, publish a non-prod port and map your DNS/challenge flow accordingly.
+      - "${DMOJ_TEST_HTTP_PORT:-18081}:80"
+    volumes:
+      # Replace prod nginx server blocks with test-specific TLS config.
+      - ./nginx/conf.d/nginx.test.conf:/etc/nginx/conf.d/nginx.conf:ro
+      # Test cert/key mount location used by nginx.test.conf.
+      - ./nginx/certs/test:/etc/nginx/test-certs:ro
 
   bridged:
     ports:
