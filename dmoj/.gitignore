@@ -1,0 +1,7 @@
+# Local test environment and generated runtime artifacts
+.env.test
+code.test.local.crt
+code.test.local.key
+
+# Local database directory created by compose mounts
+database/

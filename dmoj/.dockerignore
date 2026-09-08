@@ -1,0 +1,16 @@
+# VCS metadata is not needed for image builds
+.git
+
+# Local test/runtime artifacts
+.env.test
+code.test.local.crt
+code.test.local.key
+database/
+
+# Test TLS material should never be part of build context
+nginx/certs/test/*.crt
+nginx/certs/test/*.key
+
+# Seed dumps can contain real data; not needed for image builds
+seeds/*.sql
+seeds/*.sql.gz
