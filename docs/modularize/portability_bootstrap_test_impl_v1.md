@@ -139,6 +139,10 @@ PROJECT_NAME=dmoj-test ENV_FILE=.env.test SEED_DUMP=seeds/latest.sql.gz ./script
 Expectation:
 - exits with code 0.
 
+Important:
+- Re-running bootstrap re-imports seed data and resets test DB state.
+- Use bootstrap for first-run/reset scenarios, not for day-to-day resume.
+
 What this command does:
 - PROJECT_NAME=dmoj-test: isolates containers/networks/volumes under a test-only compose project name.
 - ENV_FILE=.env.test: forces test ports/host settings from the test env file.
@@ -209,6 +213,10 @@ Also remove volumes (destructive, test-only):
 ```bash
 PROJECT_NAME=dmoj-test ENV_FILE=.env.test REMOVE_VOLUMES=1 ./scripts/test-down
 ```
+
+`-v` meaning in direct compose usage:
+- `docker compose ... down -v` removes named volumes.
+- Removing volumes deletes persisted DB/cache data and usually requires bootstrap/reseed next start.
 
 ## First-Machine Validation Snapshot (2026-09-08)
 1. Tooling installed and verified.

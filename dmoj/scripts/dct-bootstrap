@@ -10,6 +10,59 @@ PROJECT_NAME="${PROJECT_NAME:-dmoj-test}"
 ENV_FILE="${ENV_FILE:-.env.test}"
 SEED_DUMP="${SEED_DUMP:-seeds/latest.sql.gz}"
 TEST_HOST="${DMOJ_TEST_HOST:-code.test.local}"
+ASSUME_YES=0
+
+usage() {
+  cat <<'EOF'
+Usage: ./scripts/dct-bootstrap [--yes|-y] [--help|-h]
+
+Bootstraps the test stack and reseeds the database from SEED_DUMP.
+
+Options:
+  --yes, -y   Skip confirmation prompt
+  --help, -h  Show this help
+EOF
+}
+
+parse_args() {
+  while (( $# > 0 )); do
+    case "$1" in
+      --yes|-y)
+        ASSUME_YES=1
+        ;;
+      --help|-h)
+        usage
+        exit 0
+        ;;
+      *)
+        echo "Unknown argument: $1"
+        usage
+        exit 1
+        ;;
+    esac
+    shift
+  done
+}
+
+confirm_reseed() {
+  if [[ "$ASSUME_YES" == "1" ]]; then
+    return 0
+  fi
+
+  if [[ ! -t 0 ]]; then
+    echo "Refusing to run without confirmation in non-interactive mode."
+    echo "Re-run with --yes to continue."
+    exit 1
+  fi
+
+  echo "WARNING: dct-bootstrap will reset and re-import test database data from $SEED_DUMP."
+  echo "Type 'yes' to continue:"
+  read -r answer
+  if [[ "$answer" != "yes" ]]; then
+    echo "Aborted."
+    exit 1
+  fi
+}
 
 COMPOSE=(docker compose --env-file "$ENV_FILE" -f docker-compose.yml -f docker-compose.test.yml -p "$PROJECT_NAME")
 
@@ -118,6 +171,8 @@ verify_stack() {
   curl -kI -H "Host: $TEST_HOST" "https://127.0.0.1:${https_port}/" | sed -n '1,10p'
 }
 
+parse_args "$@"
+confirm_reseed
 ensure_env_file
 ensure_seed_dump
 ensure_submodule

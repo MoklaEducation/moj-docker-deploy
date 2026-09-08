@@ -68,9 +68,18 @@ Use `dct-bootstrap` on:
 3. After destructive reset
 4. Any time you want a known seeded baseline
 
+Important:
+- Re-running `dct-bootstrap` resets and re-imports test database data from `SEED_DUMP`.
+- Use it when you want a clean baseline, not for preserving in-progress DB changes.
+
 Default run:
 ```bash
 ./scripts/dct-bootstrap
+```
+
+Confirmation bypass (for automation/non-interactive use):
+```bash
+./scripts/dct-bootstrap --yes
 ```
 
 With explicit seed:
@@ -99,7 +108,27 @@ If you want to pause and resume from same state:
 Notes:
 - `stop/start` preserves data and containers.
 - `down` removes containers/network.
-- `down -v` also removes named volumes.
+- `down -v` removes named volumes as well, so persisted DB/cache data is deleted.
+
+What `-v` means:
+- In `docker compose down -v`, `-v` means "remove volumes".
+- In this stack, that wipes persisted test data and you will need bootstrap/reseed again.
+
+## Quick Flag Reference
+Use these often with `dct`.
+
+- `up -d`: start in detached/background mode.
+- `down`: stop and remove containers + project network, keep volumes.
+- `down -v`: stop/remove containers + network + named volumes (destructive data reset).
+- `stop`: stop containers only, keep everything for fast resume.
+- `start`: start previously stopped containers from same state.
+- `logs -f <service>`: follow live logs for a service.
+- `ps`: show container status.
+- `exec <service> <cmd>`: run a command inside a running service container.
+
+Important clarification:
+- `-v` is the correct flag for volume removal on `down`.
+- `-f` is commonly used for compose file selection (`docker compose -f ...`), not volume deletion.
 
 ## When To Use Which Command
 1. First setup: `./scripts/dct-bootstrap`
