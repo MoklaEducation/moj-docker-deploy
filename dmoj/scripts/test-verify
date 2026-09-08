@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PROJECT_NAME="${PROJECT_NAME:-dmoj-test}"
+ENV_FILE="${ENV_FILE:-.env.test}"
+
+COMPOSE=(docker compose --env-file "$ENV_FILE" -f docker-compose.yml -f docker-compose.test.yml -p "$PROJECT_NAME")
+
+"${COMPOSE[@]}" ps
+
+echo "--- recent logs (site/nginx/wsevent) ---"
+"${COMPOSE[@]}" logs --since 5m --tail 120 site nginx wsevent
+
+echo "--- endpoint probe ---"
+HTTPS_PORT="$(grep '^DMOJ_TEST_HTTPS_PORT=' "$ENV_FILE" | cut -d= -f2)"
+HTTPS_PORT="${HTTPS_PORT:-8443}"
+curl -kI "https://127.0.0.1:${HTTPS_PORT}/" || true
