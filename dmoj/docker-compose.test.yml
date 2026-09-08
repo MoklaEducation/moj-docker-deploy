@@ -1,4 +1,20 @@
 services:
+  db:
+    healthcheck:
+      test: ["CMD-SHELL", "mariadb-admin ping -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  redis:
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
   nginx:
     ports:
       - "${DMOJ_TEST_HTTPS_PORT:-8443}:443"
@@ -10,12 +26,30 @@ services:
       - ./nginx/conf.d/nginx.test.conf:/etc/nginx/conf.d/nginx.conf:ro
       # Test cert/key mount location used by nginx.test.conf.
       - ./nginx/certs/test:/etc/nginx/test-certs:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    depends_on:
+      site:
+        condition: service_healthy
+      wsevent:
+        condition: service_started
 
   bridged:
     ports:
       - "${DMOJ_TEST_BRIDGED_PORT:-19999}:9999"
     environment:
       HOST: "${DMOJ_TEST_HOST:-code.test.local}"
+    depends_on:
+      base:
+        condition: service_started
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   headscale:
     ports:
@@ -25,11 +59,34 @@ services:
   site:
     environment:
       HOST: "${DMOJ_TEST_HOST:-code.test.local}"
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import socket; s=socket.create_connection(('127.0.0.1', 8000), 2); s.close()\""]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    depends_on:
+      base:
+        condition: service_started
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   celery:
     environment:
       HOST: "${DMOJ_TEST_HOST:-code.test.local}"
+    depends_on:
+      base:
+        condition: service_started
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   wsevent:
     environment:
       HOST: "${DMOJ_TEST_HOST:-code.test.local}"
+    depends_on:
+      site:
+        condition: service_started
