@@ -24,10 +24,10 @@ Reference:
 - Symptom: service startup risk due to missing project config files.
 - Fix: copy local_settings.py, config.js, uwsgi.ini into dmoj/repo.
 
-5. test-verify endpoint shows HTTP 400 on raw IP probe
+5. test-verify originally showed HTTP 400 on raw IP probe (resolved)
 - Symptom: endpoint probe in test-verify returned HTTP/1.1 400 Bad Request.
-- Cause: probe uses 127.0.0.1 without expected host header; Django host policy rejects it.
-- Fix/Interpretation: treat raw-IP 400 as informational; use host-header probe for real pass/fail.
+- Cause: probe used 127.0.0.1 without expected host header; Django host policy rejected it.
+- Fix: test-verify now probes HTTPS with configured host header (DMOJ_TEST_HOST).
 
 6. Host-header probe exposed missing static i18n artifact
 - Symptom: Host-header probe returned HTTP 500; site log showed missing /assets/static/jsi18n/en/djangojs.js.
@@ -183,7 +183,7 @@ PROJECT_NAME=dmoj-test ENV_FILE=.env.test ./scripts/test-verify
 ```
 Expectation:
 - script exits with code 0.
-- raw endpoint probe may show HTTP/1.1 400 Bad Request and can still be acceptable.
+- endpoint probe should return HTTP 200 or 302 when stack is healthy.
 
 ### Step 11: Verify with host header (real app check)
 ```bash

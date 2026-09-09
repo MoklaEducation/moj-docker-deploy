@@ -27,7 +27,7 @@ services:
       # Test cert/key mount location used by nginx.test.conf.
       - ./nginx/certs/test:/etc/nginx/test-certs:ro
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
+      test: ["CMD-SHELL", "wget -q -O /dev/null --no-check-certificate --header='Host: code.test.local' https://127.0.0.1/ || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 10

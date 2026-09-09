@@ -153,6 +153,11 @@ Notes:
 - `down` removes containers/network.
 - `down -v` removes named volumes as well, so persisted DB/cache data is deleted.
 - `start` only works when containers already exist in stopped state; after `down`, use `up -d`.
+- `dct verify` uses the configured `DMOJ_TEST_HOST` header for endpoint checks.
+- `dct verify` prints recent logs; older errors may appear if they occurred within the log window even when current endpoint probe is healthy.
+- Default verify log window is 2 minutes. Override with `VERIFY_LOG_SINCE`, for example:
+	- `VERIFY_LOG_SINCE=30s dct verify`
+	- `VERIFY_LOG_SINCE=10m dct verify`
 
 What `-v` means:
 - In `docker compose down -v`, `-v` means "remove volumes".
