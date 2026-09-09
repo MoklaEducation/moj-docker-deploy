@@ -9,6 +9,7 @@ This folder contains both public operator commands and internal helpers.
 
 Primary interface:
 - Use `dct` for daily operations (`up`, `down`, `stop`, `start`, `ps`, `logs`, `exec`).
+- Use `dct doctor` to check tooling and bootstrap prerequisites.
 - Use `dct bootstrap` for first-run or reseed/reset workflows.
 
 ## Internal Module

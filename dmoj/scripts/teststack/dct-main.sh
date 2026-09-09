@@ -20,6 +20,7 @@ Usage: dct <subcommand> [args]
 Primary subcommands:
   bootstrap [--yes]        Run full bootstrap + reseed flow
   verify                   Run test verification script
+  doctor                   Show environment/tooling/prereq diagnostics
   seed-import              Run seed import script
   seed-export              Run seed export script
   status                   Alias for: ps
@@ -37,6 +38,57 @@ Compose passthrough:
 Explicit compose passthrough:
   dct compose <compose-args>
 EOF
+}
+
+doctor() {
+  local missing=()
+  local f
+
+  cat <<EOF
+dct doctor
+project:   $PROJECT_NAME
+env file:  $ENV_FILE
+test host: $TEST_HOST
+dmoj dir:  $DMOJ_DIR
+EOF
+
+  echo
+  for tool in docker git curl openssl mkcert; do
+    if command -v "$tool" >/dev/null 2>&1; then
+      printf "tool %-8s : found\n" "$tool"
+    else
+      printf "tool %-8s : missing\n" "$tool"
+    fi
+  done
+
+  if docker compose version >/dev/null 2>&1; then
+    echo "tool compose  : found"
+  else
+    echo "tool compose  : missing"
+  fi
+
+  for f in "$ENV_FILE" \
+           "nginx/certs/test/code.test.local.crt" \
+           "nginx/certs/test/code.test.local.key" \
+           "repo/requirements.txt" \
+           "repo/dmoj/local_settings.py" \
+           "repo/websocket/config.js" \
+           "repo/uwsgi.ini"; do
+    [[ -f "$f" ]] || missing+=("$f")
+  done
+
+  echo
+  if (( ${#missing[@]} == 0 )); then
+    echo "prereqs: OK"
+    return 0
+  fi
+
+  echo "prereqs: missing"
+  for f in "${missing[@]}"; do
+    echo "  - $f"
+  done
+  echo "Run: dct bootstrap"
+  return 2
 }
 
 run_compose() {
@@ -76,26 +128,36 @@ case "$command" in
     ;;
   verify)
     shift
+    assert_safe_test_context || exit 2
     env PROJECT_NAME="$PROJECT_NAME" ENV_FILE="$ENV_FILE" "$SCRIPTS_DIR/test-verify" "$@"
+    exit $?
+    ;;
+  doctor)
+    shift
+    doctor "$@"
     exit $?
     ;;
   seed-import)
     shift
+    assert_safe_test_context || exit 2
     env PROJECT_NAME="$PROJECT_NAME" ENV_FILE="$ENV_FILE" "$SCRIPTS_DIR/test-seed-import" "$@"
     exit $?
     ;;
   seed-export)
     shift
+    assert_safe_test_context || exit 2
     env PROJECT_NAME="$PROJECT_NAME" ENV_FILE="$ENV_FILE" "$SCRIPTS_DIR/test-seed-export" "$@"
     exit $?
     ;;
   status)
     shift
+    assert_safe_test_context || exit 2
     run_compose ps "$@"
     exit $?
     ;;
   compose)
     shift
+    assert_safe_test_context || exit 2
     if [[ "$#" -eq 0 ]]; then
       usage
       exit 1
@@ -110,6 +172,7 @@ case "$command" in
     exit $?
     ;;
   up|start|restart)
+    assert_safe_test_context || exit 2
     run_start_like "$command" "${@:2}"
     exit $?
     ;;
@@ -118,6 +181,7 @@ case "$command" in
     exit 0
     ;;
   *)
+    assert_safe_test_context || exit 2
     run_compose "$@"
     exit $?
     ;;

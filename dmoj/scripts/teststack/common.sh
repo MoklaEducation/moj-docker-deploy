@@ -13,6 +13,43 @@ TEST_HOST="${DMOJ_TEST_HOST:-code.test.local}"
 
 COMPOSE=(docker compose --env-file "$ENV_FILE" -f docker-compose.yml -f docker-compose.test.yml -p "$PROJECT_NAME")
 
+is_test_like_env_file() {
+  local base
+  base="$(basename "$ENV_FILE")"
+  [[ "$base" =~ (^|[._-])test([._-]|$) ]]
+}
+
+assert_safe_test_context() {
+  local unsafe_re='(^|[-_.])(prod|production|live)($|[-_.])'
+
+  if [[ "${DCT_ALLOW_UNSAFE:-0}" == "1" ]]; then
+    return 0
+  fi
+
+  if ! is_test_like_env_file; then
+    cat <<EOF
+Refusing to run in non-test context.
+ENV_FILE='$ENV_FILE' does not look test-scoped.
+
+Use a test env file (for example: .env.test), or override intentionally:
+  DCT_ALLOW_UNSAFE=1 dct <subcommand>
+EOF
+    return 1
+  fi
+
+  if [[ "$PROJECT_NAME" =~ $unsafe_re ]]; then
+    cat <<EOF
+Refusing to run with project name '$PROJECT_NAME' because it looks production-like.
+
+Use a dedicated test project name, or override intentionally:
+  DCT_ALLOW_UNSAFE=1 PROJECT_NAME='$PROJECT_NAME' dct <subcommand>
+EOF
+    return 1
+  fi
+
+  return 0
+}
+
 show_bootstrap_hint() {
   cat <<'EOF'
 Bootstrap prerequisites are incomplete for test startup.

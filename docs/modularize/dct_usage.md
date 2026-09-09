@@ -75,6 +75,11 @@ Verification:
 dct verify
 ```
 
+Diagnostics:
+```bash
+dct doctor
+```
+
 Status alias:
 ```bash
 dct status
@@ -104,6 +109,11 @@ dct exec site bash
 Bootstrap detection behavior:
 - For `up`, `start`, and `restart`, `dct` checks required bootstrap prerequisites.
 - If required files are missing, it exits with a clear message and asks you to run `dct bootstrap`.
+
+Safety guard behavior:
+- `dct` is test-scoped by default and refuses to run when `ENV_FILE` does not look test-oriented.
+- `dct` also refuses project names that look production-like (`prod`, `production`, `live`).
+- For intentional overrides only, set `DCT_ALLOW_UNSAFE=1`.
 
 ## dct-bootstrap Script
 dct-bootstrap remains available as a compatibility entrypoint.
@@ -198,6 +208,7 @@ Run this after each refactor step.
 Step A: command wiring
 ```bash
 dct --help
+dct doctor
 dct bootstrap --help
 dct status
 dct verify

@@ -166,6 +166,7 @@ verify_stack() {
 }
 
 parse_args "$@"
+assert_safe_test_context || exit 2
 confirm_reseed
 ensure_env_file
 ensure_seed_dump
