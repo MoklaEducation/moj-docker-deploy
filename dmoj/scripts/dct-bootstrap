@@ -2,5 +2,4 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-"$SCRIPT_DIR/teststack/bootstrap-main.sh" "$@"
-exit $?
+exec "$SCRIPT_DIR/teststack/bin/dct-bootstrap" "$@"

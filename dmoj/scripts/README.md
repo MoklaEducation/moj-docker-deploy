@@ -3,6 +3,11 @@
 This folder contains both public operator commands and internal helpers.
 
 ## Public Commands (Use These)
+- teststack/bin/dct
+- teststack/bin/dct-bootstrap
+- teststack/bin/dct-init
+
+Compatibility wrappers (stable paths):
 - dct
 - dct-bootstrap
 - dct-init
@@ -17,6 +22,12 @@ Primary interface:
 - teststack/common.sh
 - teststack/dct-main.sh
 - teststack/bootstrap-main.sh
+- teststack/bin/test-up
+- teststack/bin/test-down
+- teststack/bin/test-verify
+- teststack/bin/test-seed-import
+- teststack/bin/test-seed-export
+- teststack/bin/test-bootstrap
 - teststack/legacy/test-up
 - teststack/legacy/test-down
 - teststack/legacy/test-verify
@@ -34,7 +45,7 @@ These are implementation files used by `dct`/`dct-bootstrap` wrappers.
 - test-seed-export
 
 These top-level `test-*` files are compatibility wrappers that forward to
-`teststack/legacy/*`.
+`teststack/bin/*`.
 
 These are still used internally and can be invoked directly for debugging,
 but normal operator workflow should prefer `dct`.

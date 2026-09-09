@@ -9,6 +9,10 @@ Operator rule:
 
 ## Scripts
 - Public entrypoints:
+	- dmoj/scripts/teststack/bin/dct
+	- dmoj/scripts/teststack/bin/dct-bootstrap
+	- dmoj/scripts/teststack/bin/dct-init
+- Compatibility wrappers:
 	- dmoj/scripts/dct
 	- dmoj/scripts/dct-bootstrap
 	- dmoj/scripts/dct-init
@@ -16,6 +20,12 @@ Operator rule:
 	- dmoj/scripts/teststack/common.sh
 	- dmoj/scripts/teststack/dct-main.sh
 	- dmoj/scripts/teststack/bootstrap-main.sh
+	- dmoj/scripts/teststack/bin/test-up
+	- dmoj/scripts/teststack/bin/test-down
+	- dmoj/scripts/teststack/bin/test-verify
+	- dmoj/scripts/teststack/bin/test-seed-import
+	- dmoj/scripts/teststack/bin/test-seed-export
+	- dmoj/scripts/teststack/bin/test-bootstrap
 	- dmoj/scripts/teststack/legacy/test-up
 	- dmoj/scripts/teststack/legacy/test-down
 	- dmoj/scripts/teststack/legacy/test-verify
@@ -26,7 +36,7 @@ Operator rule:
 	- dmoj/scripts/README.md
 
 Compatibility:
-- Top-level `dmoj/scripts/test-*` files remain as wrappers and forward to `teststack/legacy/*`.
+- Top-level `dmoj/scripts/test-*` files remain as wrappers and forward to `teststack/bin/*`.
 
 Run from dmoj:
 ```bash
