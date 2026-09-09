@@ -1,7 +1,7 @@
-# dct and dct-bootstrap Usage
+# dct Usage
 
 ## Purpose
-Provide docker compose-like commands for the test stack without repeating long flags, while preserving test isolation.
+Provide a single command surface for the test stack, while preserving compose compatibility and test isolation.
 
 ## Scripts
 - dmoj/scripts/dct
@@ -19,6 +19,10 @@ To run `dct` and `dct-bootstrap` from any directory, source the init script once
 ```bash
 source /path/to/moj-docker-deploy/dmoj/scripts/dct-init
 ```
+
+Important:
+- Source only `dct-init`.
+- Do not source `dct`; run it as a normal command.
 
 Verification:
 ```bash
@@ -42,8 +46,32 @@ Override example:
 PROJECT_NAME=my-test ENV_FILE=.env.test ./scripts/dct ps
 ```
 
-## dct: Compose-Compatible Daily Wrapper
-`dct` forwards all arguments to docker compose with test flags injected.
+## Primary Interface
+Use `dct` as the primary operator command.
+
+First-run/bootstrap:
+```bash
+dct bootstrap
+```
+
+Non-interactive/automation bootstrap:
+```bash
+dct bootstrap --yes
+```
+
+Verification:
+```bash
+dct verify
+```
+
+Seed operations:
+```bash
+dct seed-import
+dct seed-export
+```
+
+## Compose Compatibility
+`dct` forwards compose commands with test flags injected.
 
 Examples:
 ```bash
@@ -59,7 +87,10 @@ Examples:
 
 Bootstrap detection behavior:
 - For `up`, `start`, and `restart`, `dct` checks required bootstrap prerequisites.
-- If required files are missing, it exits with a clear message and asks you to run `./scripts/dct-bootstrap`.
+- If required files are missing, it exits with a clear message and asks you to run `dct bootstrap`.
+
+## dct-bootstrap Script
+dct-bootstrap remains available as the underlying script, and `dct bootstrap` calls it.
 
 ## dct-bootstrap: First-Run / Reset Wrapper
 Use `dct-bootstrap` on:
@@ -109,6 +140,7 @@ Notes:
 - `stop/start` preserves data and containers.
 - `down` removes containers/network.
 - `down -v` removes named volumes as well, so persisted DB/cache data is deleted.
+- `start` only works when containers already exist in stopped state; after `down`, use `up -d`.
 
 What `-v` means:
 - In `docker compose down -v`, `-v` means "remove volumes".
@@ -131,8 +163,32 @@ Important clarification:
 - `-f` is commonly used for compose file selection (`docker compose -f ...`), not volume deletion.
 
 ## When To Use Which Command
-1. First setup: `./scripts/dct-bootstrap`
+1. First setup: `dct bootstrap`
 2. Daily start: `./scripts/dct up -d` or `./scripts/dct start`
 3. Daily stop: `./scripts/dct stop`
 4. Full teardown: `./scripts/dct down`
 5. Destructive teardown: `./scripts/dct down -v`
+
+## Step-by-Step Refactor Testing
+Run this after each refactor step.
+
+Step A: command wiring
+```bash
+dct --help
+dct bootstrap --help
+dct verify
+```
+
+Step B: compose compatibility
+```bash
+dct ps
+dct config >/tmp/dct_config.out && echo OK
+dct compose ps
+```
+
+Step C: lifecycle without data loss
+```bash
+dct stop
+dct start
+dct ps
+```

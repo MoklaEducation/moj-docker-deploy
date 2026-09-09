@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
+  echo "Do not source dct. Run it as a command: dct <subcommand>"
+  return 1
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DMOJ_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$DMOJ_DIR"
@@ -11,14 +16,39 @@ COMPOSE=(docker compose --env-file "$ENV_FILE" -f docker-compose.yml -f docker-c
 
 command="${1:-}"
 
+usage() {
+  cat <<'EOF'
+Usage: dct <subcommand> [args]
+
+Primary subcommands:
+  bootstrap [--yes]        Run full bootstrap + reseed flow
+  verify                   Run test verification script
+  seed-import              Run seed import script
+  seed-export              Run seed export script
+
+Compose passthrough:
+  dct up -d
+  dct down
+  dct down -v
+  dct stop
+  dct start
+  dct ps
+  dct logs -f nginx
+  dct exec site bash
+
+Explicit compose passthrough:
+  dct compose <compose-args>
+EOF
+}
+
 show_bootstrap_hint() {
   cat <<'EOF'
 Bootstrap prerequisites are incomplete for test startup.
 Run bootstrap once:
-  ./scripts/dct-bootstrap
+  dct bootstrap
 
 Or set any needed variables first, for example:
-  PROJECT_NAME=dmoj-test ENV_FILE=.env.test SEED_DUMP=seeds/latest.sql.gz ./scripts/dct-bootstrap
+  PROJECT_NAME=dmoj-test ENV_FILE=.env.test SEED_DUMP=seeds/latest.sql.gz dct bootstrap --yes
 EOF
 }
 
@@ -47,9 +77,51 @@ check_bootstrap_prereqs() {
 
 # For startup-like commands, gate on known bootstrap prerequisites.
 case "$command" in
+  ""|-h|--help|help)
+    usage
+    exit 0
+    ;;
+  bootstrap)
+    shift
+    "$SCRIPT_DIR/dct-bootstrap" "$@"
+    exit $?
+    ;;
+  verify)
+    shift
+    env PROJECT_NAME="$PROJECT_NAME" ENV_FILE="$ENV_FILE" "$SCRIPT_DIR/test-verify" "$@"
+    exit $?
+    ;;
+  seed-import)
+    shift
+    env PROJECT_NAME="$PROJECT_NAME" ENV_FILE="$ENV_FILE" "$SCRIPT_DIR/test-seed-import" "$@"
+    exit $?
+    ;;
+  seed-export)
+    shift
+    env PROJECT_NAME="$PROJECT_NAME" ENV_FILE="$ENV_FILE" "$SCRIPT_DIR/test-seed-export" "$@"
+    exit $?
+    ;;
+  compose)
+    shift
+    if [[ "$#" -eq 0 ]]; then
+      usage
+      exit 1
+    fi
+    case "${1:-}" in
+      up|start|restart)
+        check_bootstrap_prereqs || exit 2
+        ;;
+    esac
+    "${COMPOSE[@]}" "$@"
+    exit $?
+    ;;
   up|start|restart)
     check_bootstrap_prereqs || exit 2
+    "${COMPOSE[@]}" "$@"
+    exit $?
+    ;;
+  *)
+    "${COMPOSE[@]}" "$@"
+    exit $?
     ;;
 esac
-
-"${COMPOSE[@]}" "$@"

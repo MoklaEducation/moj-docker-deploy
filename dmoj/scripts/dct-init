@@ -3,7 +3,8 @@
 # Usage:
 #   source /path/to/moj-docker-deploy/dmoj/scripts/dct-init
 
-set -euo pipefail
+# Intentionally do not set strict shell options here because this file is sourced.
+# Changing shell options in a sourced script can unexpectedly terminate the user's shell.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
