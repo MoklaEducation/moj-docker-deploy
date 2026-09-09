@@ -3,10 +3,21 @@
 ## Purpose
 Provide a single command surface for the test stack, while preserving compose compatibility and test isolation.
 
+Operator rule:
+- Use `dct` as the public interface.
+- Treat `test-*` scripts as internal implementation details.
+
 ## Scripts
-- dmoj/scripts/dct
-- dmoj/scripts/dct-bootstrap
-- dmoj/scripts/dct-init
+- Public entrypoints:
+	- dmoj/scripts/dct
+	- dmoj/scripts/dct-bootstrap
+	- dmoj/scripts/dct-init
+- Internal module:
+	- dmoj/scripts/teststack/common.sh
+	- dmoj/scripts/teststack/dct-main.sh
+	- dmoj/scripts/teststack/bootstrap-main.sh
+- Script index:
+	- dmoj/scripts/README.md
 
 Run from dmoj:
 ```bash
@@ -90,7 +101,8 @@ Bootstrap detection behavior:
 - If required files are missing, it exits with a clear message and asks you to run `dct bootstrap`.
 
 ## dct-bootstrap Script
-dct-bootstrap remains available as the underlying script, and `dct bootstrap` calls it.
+dct-bootstrap remains available as a compatibility entrypoint.
+Preferred usage is `dct bootstrap`.
 
 ## dct-bootstrap: First-Run / Reset Wrapper
 Use `dct-bootstrap` on:
@@ -164,10 +176,10 @@ Important clarification:
 
 ## When To Use Which Command
 1. First setup: `dct bootstrap`
-2. Daily start: `./scripts/dct up -d` or `./scripts/dct start`
-3. Daily stop: `./scripts/dct stop`
-4. Full teardown: `./scripts/dct down`
-5. Destructive teardown: `./scripts/dct down -v`
+2. Daily start: `dct up -d` or `dct start`
+3. Daily stop: `dct stop`
+4. Full teardown: `dct down`
+5. Destructive teardown: `dct down -v`
 
 ## Step-by-Step Refactor Testing
 Run this after each refactor step.
