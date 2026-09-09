@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PROJECT_NAME="${PROJECT_NAME:-dmoj-test}"
+ENV_FILE="${ENV_FILE:-.env.test}"
+
+COMPOSE=(docker compose --env-file "$ENV_FILE" -f docker-compose.yml -f docker-compose.test.yml -p "$PROJECT_NAME")
+VERIFY_LOG_SINCE="${VERIFY_LOG_SINCE:-2m}"
+
+"${COMPOSE[@]}" ps
+
+echo "--- recent logs (site/nginx/wsevent) ---"
+"${COMPOSE[@]}" logs --since "$VERIFY_LOG_SINCE" --tail 120 site nginx wsevent
+
+echo "--- endpoint probe ---"
+HTTPS_PORT="$(grep '^DMOJ_TEST_HTTPS_PORT=' "$ENV_FILE" | cut -d= -f2)"
+HTTPS_PORT="${HTTPS_PORT:-8443}"
+TEST_HOST="$(grep '^DMOJ_TEST_HOST=' "$ENV_FILE" | cut -d= -f2)"
+TEST_HOST="${TEST_HOST:-code.test.local}"
+
+# Use the configured host header to avoid Django DisallowedHost false negatives.
+curl -kI -H "Host: ${TEST_HOST}" "https://127.0.0.1:${HTTPS_PORT}/" || true

@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+OUT_DIR="${OUT_DIR:-seeds}"
+SEED_PREFIX="${SEED_PREFIX:-dmoj_seed}"
+TS="$(date +%Y%m%d_%H%M%S)"
+OUT_FILE="${OUT_DIR}/${SEED_PREFIX}_${TS}.sql.gz"
+
+mkdir -p "$OUT_DIR"
+
+docker compose -f docker-compose.yml exec -T db sh -lc 'mariadb-dump -u root -p"$MYSQL_ROOT_PASSWORD" --single-transaction --routines --triggers "$MYSQL_DATABASE"' \
+  | gzip -c > "$OUT_FILE"
+
+if [[ ! -s "$OUT_FILE" ]]; then
+  echo "Seed export failed: $OUT_FILE is empty"
+  exit 1
+fi
+
+ln -sfn "$(basename "$OUT_FILE")" "$OUT_DIR/latest.sql.gz"
+
+echo "Seed created: $OUT_FILE"
+ls -lh "$OUT_FILE" "$OUT_DIR/latest.sql.gz"

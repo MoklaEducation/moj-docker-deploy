@@ -17,6 +17,12 @@ Primary interface:
 - teststack/common.sh
 - teststack/dct-main.sh
 - teststack/bootstrap-main.sh
+- teststack/legacy/test-up
+- teststack/legacy/test-down
+- teststack/legacy/test-verify
+- teststack/legacy/test-seed-import
+- teststack/legacy/test-seed-export
+- teststack/legacy/test-bootstrap
 
 These are implementation files used by `dct`/`dct-bootstrap` wrappers.
 
@@ -26,6 +32,9 @@ These are implementation files used by `dct`/`dct-bootstrap` wrappers.
 - test-verify
 - test-seed-import
 - test-seed-export
+
+These top-level `test-*` files are compatibility wrappers that forward to
+`teststack/legacy/*`.
 
 These are still used internally and can be invoked directly for debugging,
 but normal operator workflow should prefer `dct`.

@@ -5,6 +5,7 @@ COMMON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPTS_DIR="$(cd "$COMMON_DIR/.." && pwd)"
 DMOJ_DIR="$(cd "$SCRIPTS_DIR/.." && pwd)"
 ROOT_DIR="$(cd "$DMOJ_DIR/.." && pwd)"
+LEGACY_SCRIPTS_DIR="$SCRIPTS_DIR/teststack/legacy"
 
 PROJECT_NAME="${PROJECT_NAME:-dmoj-test}"
 ENV_FILE="${ENV_FILE:-.env.test}"

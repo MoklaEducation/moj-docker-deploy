@@ -145,7 +145,7 @@ preflight_required_files() {
 }
 
 run_bootstrap() {
-  PROJECT_NAME="$PROJECT_NAME" ENV_FILE="$ENV_FILE" SEED_DUMP="$SEED_DUMP" "$SCRIPTS_DIR/test-bootstrap"
+  PROJECT_NAME="$PROJECT_NAME" ENV_FILE="$ENV_FILE" SEED_DUMP="$SEED_DUMP" "$LEGACY_SCRIPTS_DIR/test-bootstrap"
 }
 
 finalize_static_artifacts() {
@@ -155,7 +155,7 @@ finalize_static_artifacts() {
 }
 
 verify_stack() {
-  PROJECT_NAME="$PROJECT_NAME" ENV_FILE="$ENV_FILE" "$SCRIPTS_DIR/test-verify"
+  PROJECT_NAME="$PROJECT_NAME" ENV_FILE="$ENV_FILE" "$LEGACY_SCRIPTS_DIR/test-verify"
 
   local https_port
   https_port="$(grep '^DMOJ_TEST_HTTPS_PORT=' "$ENV_FILE" | cut -d= -f2 || true)"

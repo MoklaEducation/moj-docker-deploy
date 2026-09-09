@@ -16,8 +16,17 @@ Operator rule:
 	- dmoj/scripts/teststack/common.sh
 	- dmoj/scripts/teststack/dct-main.sh
 	- dmoj/scripts/teststack/bootstrap-main.sh
+	- dmoj/scripts/teststack/legacy/test-up
+	- dmoj/scripts/teststack/legacy/test-down
+	- dmoj/scripts/teststack/legacy/test-verify
+	- dmoj/scripts/teststack/legacy/test-seed-import
+	- dmoj/scripts/teststack/legacy/test-seed-export
+	- dmoj/scripts/teststack/legacy/test-bootstrap
 - Script index:
 	- dmoj/scripts/README.md
+
+Compatibility:
+- Top-level `dmoj/scripts/test-*` files remain as wrappers and forward to `teststack/legacy/*`.
 
 Run from dmoj:
 ```bash

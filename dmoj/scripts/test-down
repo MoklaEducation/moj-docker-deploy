@@ -1,19 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROJECT_NAME="${PROJECT_NAME:-dmoj-test}"
-ENV_FILE="${ENV_FILE:-.env.test}"
-REMOVE_VOLUMES="${REMOVE_VOLUMES:-0}"
-
-CMD=(docker compose --env-file "$ENV_FILE" -f docker-compose.yml -f docker-compose.test.yml -p "$PROJECT_NAME" down)
-
-if [[ "$REMOVE_VOLUMES" == "1" ]]; then
-  CMD+=( -v )
-fi
-
-"${CMD[@]}"
-
-echo "Stopped project: $PROJECT_NAME"
-if [[ "$REMOVE_VOLUMES" == "1" ]]; then
-  echo "Volumes were removed."
-fi
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec "$SCRIPT_DIR/teststack/legacy/test-down" "$@"
