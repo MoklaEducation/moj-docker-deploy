@@ -75,6 +75,11 @@ Verification:
 dct verify
 ```
 
+Status alias:
+```bash
+dct status
+```
+
 Seed operations:
 ```bash
 dct seed-import
@@ -86,14 +91,14 @@ dct seed-export
 
 Examples:
 ```bash
-./scripts/dct up -d
-./scripts/dct down
-./scripts/dct down -v
-./scripts/dct stop
-./scripts/dct start
-./scripts/dct ps
-./scripts/dct logs -f nginx
-./scripts/dct exec site bash
+dct up -d
+dct down
+dct down -v
+dct stop
+dct start
+dct ps
+dct logs -f nginx
+dct exec site bash
 ```
 
 Bootstrap detection behavior:
@@ -117,17 +122,17 @@ Important:
 
 Default run:
 ```bash
-./scripts/dct-bootstrap
+dct bootstrap
 ```
 
 Confirmation bypass (for automation/non-interactive use):
 ```bash
-./scripts/dct-bootstrap --yes
+dct bootstrap --yes
 ```
 
 With explicit seed:
 ```bash
-SEED_DUMP=seeds/latest.sql.gz ./scripts/dct-bootstrap
+SEED_DUMP=seeds/latest.sql.gz dct bootstrap
 ```
 
 What it does:
@@ -144,8 +149,8 @@ What it does:
 ## Start/Stop Without Losing State
 If you want to pause and resume from same state:
 ```bash
-./scripts/dct stop
-./scripts/dct start
+dct stop
+dct start
 ```
 
 Notes:
@@ -158,6 +163,7 @@ Notes:
 - Default verify log window is 2 minutes. Override with `VERIFY_LOG_SINCE`, for example:
 	- `VERIFY_LOG_SINCE=30s dct verify`
 	- `VERIFY_LOG_SINCE=10m dct verify`
+- If `dct start` fails because containers were removed, use `dct up -d`.
 
 What `-v` means:
 - In `docker compose down -v`, `-v` means "remove volumes".
@@ -193,6 +199,7 @@ Step A: command wiring
 ```bash
 dct --help
 dct bootstrap --help
+dct status
 dct verify
 ```
 
