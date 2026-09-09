@@ -28,7 +28,7 @@ Primary subcommands:
 Compose passthrough:
   dct up -d
   dct down
-  dct down -v
+  dct down -v [--yes]
   dct stop
   dct start
   dct ps
@@ -37,6 +37,9 @@ Compose passthrough:
 
 Explicit compose passthrough:
   dct compose <compose-args>
+
+Safety:
+  - dct down -v requires confirmation unless --yes is provided
 EOF
 }
 
@@ -116,6 +119,61 @@ EOF
   run_compose "$cmd" "$@"
 }
 
+confirm_destructive_down() {
+  local assume_yes="$1"
+
+  if [[ "$assume_yes" == "1" ]]; then
+    return 0
+  fi
+
+  if [[ ! -t 0 ]]; then
+    cat <<'EOF'
+Refusing destructive down in non-interactive mode.
+Re-run with --yes to remove volumes.
+EOF
+    return 1
+  fi
+
+  cat <<'EOF'
+WARNING: dct down -v removes named volumes and deletes persisted test data.
+Type 'yes' to continue:
+EOF
+  local answer
+  read -r answer
+  [[ "$answer" == "yes" ]]
+}
+
+run_down_like() {
+  local args=()
+  local assume_yes=0
+  local destructive=0
+  local arg
+
+  for arg in "$@"; do
+    case "$arg" in
+      --yes|-y)
+        assume_yes=1
+        ;;
+      -v|--volumes)
+        destructive=1
+        args+=("$arg")
+        ;;
+      *)
+        args+=("$arg")
+        ;;
+    esac
+  done
+
+  if [[ "$destructive" == "1" ]]; then
+    if ! confirm_destructive_down "$assume_yes"; then
+      echo "Aborted."
+      exit 1
+    fi
+  fi
+
+  run_compose "${args[@]}"
+}
+
 case "$command" in
   ""|-h|--help|help)
     usage
@@ -167,8 +225,17 @@ case "$command" in
         run_start_like "$@"
         exit $?
         ;;
+      down)
+        run_down_like "$@"
+        exit $?
+        ;;
     esac
     run_compose "$@"
+    exit $?
+    ;;
+  down)
+    assert_safe_test_context || exit 2
+    run_down_like "$command" "${@:2}"
     exit $?
     ;;
   up|start|restart)

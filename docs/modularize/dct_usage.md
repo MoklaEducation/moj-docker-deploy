@@ -99,6 +99,7 @@ Examples:
 dct up -d
 dct down
 dct down -v
+dct down -v --yes
 dct stop
 dct start
 dct ps
@@ -167,6 +168,7 @@ Notes:
 - `stop/start` preserves data and containers.
 - `down` removes containers/network.
 - `down -v` removes named volumes as well, so persisted DB/cache data is deleted.
+- `down -v` now requires confirmation by default; use `--yes` for non-interactive automation.
 - `start` only works when containers already exist in stopped state; after `down`, use `up -d`.
 - `dct verify` uses the configured `DMOJ_TEST_HOST` header for endpoint checks.
 - `dct verify` prints recent logs; older errors may appear if they occurred within the log window even when current endpoint probe is healthy.
@@ -185,6 +187,7 @@ Use these often with `dct`.
 - `up -d`: start in detached/background mode.
 - `down`: stop and remove containers + project network, keep volumes.
 - `down -v`: stop/remove containers + network + named volumes (destructive data reset).
+- `down -v --yes`: same as above, but skip prompt (for CI/automation).
 - `stop`: stop containers only, keep everything for fast resume.
 - `start`: start previously stopped containers from same state.
 - `logs -f <service>`: follow live logs for a service.

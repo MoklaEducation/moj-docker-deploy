@@ -11,6 +11,7 @@ Primary interface:
 - Use `dct` for daily operations (`up`, `down`, `stop`, `start`, `ps`, `logs`, `exec`).
 - Use `dct doctor` to check tooling and bootstrap prerequisites.
 - Use `dct bootstrap` for first-run or reseed/reset workflows.
+- `dct down -v` is destructive and prompts for confirmation unless `--yes` is passed.
 
 ## Internal Module
 - teststack/common.sh
