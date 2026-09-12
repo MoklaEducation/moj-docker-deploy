@@ -18,7 +18,7 @@ From now on, it is assumed you are in the `dmoj` directory.
 
 Initialize the setup by moving the configuration files into the submodule and by creating the necessary directories:
 ```sh
-$ ./scripts/initialize
+$ ./scripts/teststack/maintenance/initialize
 ```
 
 Configure the environment variables in the files in `dmoj/environment/`. In particular, set the MYSQL passwords in `mysql.env` and `mysql-admin.env`, and the host and secret key in `site.env`. Also, configure the `server_name` directive in `dmoj/nginx/conf.d/nginx.conf`.

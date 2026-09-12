@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PROJECT_NAME="${PROJECT_NAME:-dmoj-test}"
+ENV_FILE="${ENV_FILE:-.env.test}"
+
+if [[ ! -f "$ENV_FILE" ]]; then
+  echo "Missing $ENV_FILE. Copy .env.test.example to $ENV_FILE and adjust values."
+  exit 1
+fi
+
+if [[ ! -f nginx/certs/test/code.test.local.crt || ! -f nginx/certs/test/code.test.local.key ]]; then
+  echo "Missing test TLS certificate files in nginx/certs/test/."
+  echo "Expected: code.test.local.crt and code.test.local.key"
+  exit 1
+fi
+
+docker compose --env-file "$ENV_FILE" -f docker-compose.yml -f docker-compose.test.yml -p "$PROJECT_NAME" config >/tmp/dmoj_test_rendered.yml
+
+docker compose --env-file "$ENV_FILE" -f docker-compose.yml -f docker-compose.test.yml -p "$PROJECT_NAME" up -d
+
+echo "Started project: $PROJECT_NAME"
+docker compose --env-file "$ENV_FILE" -f docker-compose.yml -f docker-compose.test.yml -p "$PROJECT_NAME" ps
