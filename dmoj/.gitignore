@@ -3,5 +3,15 @@
 code.test.local.crt
 code.test.local.key
 
+# Keycloak test-only runtime state, secrets, and generated files
+environment/keycloak.test.env
+keycloak/test/*.local.json
+keycloak/test/*.local.env
+keycloak/test/*.key
+keycloak/test/*.pem
+keycloak/test/*.crt
+keycloak/test/*.csr
+keycloak/test/*.p12
+
 # Local database directory created by compose mounts
 database/
