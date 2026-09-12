@@ -9,34 +9,23 @@ Operator rule:
 
 ## Scripts
 - Public entrypoints:
-	- dmoj/scripts/teststack/bin/dct
-	- dmoj/scripts/teststack/bin/dct-bootstrap
-	- dmoj/scripts/teststack/bin/dct-init
-- Compatibility wrappers:
-	- dmoj/scripts/dct
-	- dmoj/scripts/dct-bootstrap
-	- dmoj/scripts/dct-init
+	- dmoj/scripts/teststack/dct/dct
+	- dmoj/scripts/teststack/dct/dct-bootstrap
+	- dmoj/scripts/teststack/dct/dct-init
 - Internal module:
 	- dmoj/scripts/teststack/common.sh
 	- dmoj/scripts/teststack/dct-main.sh
 	- dmoj/scripts/teststack/bootstrap-main.sh
-	- dmoj/scripts/teststack/bin/test-up
-	- dmoj/scripts/teststack/bin/test-down
-	- dmoj/scripts/teststack/bin/test-verify
-	- dmoj/scripts/teststack/bin/test-seed-import
-	- dmoj/scripts/teststack/bin/test-seed-export
-	- dmoj/scripts/teststack/bin/test-bootstrap
-	- dmoj/scripts/teststack/legacy/test-up
-	- dmoj/scripts/teststack/legacy/test-down
-	- dmoj/scripts/teststack/legacy/test-verify
-	- dmoj/scripts/teststack/legacy/test-seed-import
-	- dmoj/scripts/teststack/legacy/test-seed-export
-	- dmoj/scripts/teststack/legacy/test-bootstrap
+	- dmoj/scripts/teststack/lifecycle/test-up
+	- dmoj/scripts/teststack/lifecycle/test-down
+	- dmoj/scripts/teststack/lifecycle/test-verify
+	- dmoj/scripts/teststack/lifecycle/test-bootstrap
+	- dmoj/scripts/teststack/seed/test-seed-import
+	- dmoj/scripts/teststack/seed/test-seed-export
+	- dmoj/scripts/teststack/maintenance/enter_site
+	- dmoj/scripts/teststack/maintenance/initialize
 - Script index:
 	- dmoj/scripts/README.md
-
-Compatibility:
-- Top-level `dmoj/scripts/test-*` files remain as wrappers and forward to `teststack/bin/*`.
 
 Run from dmoj:
 ```bash
@@ -47,7 +36,7 @@ cd /path/to/moj-docker-deploy/dmoj
 To run `dct` and `dct-bootstrap` from any directory, source the init script once per shell session:
 
 ```bash
-source /path/to/moj-docker-deploy/dmoj/scripts/dct-init
+source /path/to/moj-docker-deploy/dmoj/scripts/teststack/dct/dct-init
 ```
 
 Important:
@@ -62,7 +51,7 @@ command -v dct-bootstrap
 
 Persist across future shells (optional):
 ```bash
-echo 'source /path/to/moj-docker-deploy/dmoj/scripts/dct-init' >> ~/.bashrc
+echo 'source /path/to/moj-docker-deploy/dmoj/scripts/teststack/dct/dct-init' >> ~/.bashrc
 ```
 
 ## Defaults
@@ -73,7 +62,7 @@ Both wrappers use these defaults unless overridden:
 
 Override example:
 ```bash
-PROJECT_NAME=my-test ENV_FILE=.env.test ./scripts/dct ps
+PROJECT_NAME=my-test ENV_FILE=.env.test ./scripts/teststack/dct/dct ps
 ```
 
 ## Primary Interface

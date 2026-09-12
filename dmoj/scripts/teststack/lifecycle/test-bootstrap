@@ -12,15 +12,15 @@ fi
 
 if [[ ! -f "$SEED_DUMP" ]]; then
   echo "Missing seed dump: $SEED_DUMP"
-  echo "Create one with ./scripts/test-seed-export or copy a dump into seeds/."
+  echo "Create one with ./scripts/teststack/seed/test-seed-export or copy a dump into seeds/."
   exit 1
 fi
 
 # Start stack first (includes config validation and cert checks).
-PROJECT_NAME="$PROJECT_NAME" ENV_FILE="$ENV_FILE" ./scripts/test-up
+PROJECT_NAME="$PROJECT_NAME" ENV_FILE="$ENV_FILE" ./scripts/teststack/lifecycle/test-up
 
 # Import database seed.
-PROJECT_NAME="$PROJECT_NAME" ENV_FILE="$ENV_FILE" SEED_DUMP="$SEED_DUMP" RESET_DB_ON_IMPORT=1 ./scripts/test-seed-import
+PROJECT_NAME="$PROJECT_NAME" ENV_FILE="$ENV_FILE" SEED_DUMP="$SEED_DUMP" RESET_DB_ON_IMPORT=1 ./scripts/teststack/seed/test-seed-import
 
 # Run migrate/static steps against seeded stack.
 docker compose --env-file "$ENV_FILE" -f docker-compose.yml -f docker-compose.test.yml -p "$PROJECT_NAME" exec -T site python3 manage.py migrate
@@ -28,6 +28,6 @@ docker compose --env-file "$ENV_FILE" -f docker-compose.yml -f docker-compose.te
 docker compose --env-file "$ENV_FILE" -f docker-compose.yml -f docker-compose.test.yml -p "$PROJECT_NAME" exec -T site python3 manage.py collectstatic --noinput
 
 # Show post-bootstrap status.
-PROJECT_NAME="$PROJECT_NAME" ENV_FILE="$ENV_FILE" ./scripts/test-verify
+PROJECT_NAME="$PROJECT_NAME" ENV_FILE="$ENV_FILE" ./scripts/teststack/lifecycle/test-verify
 
 echo "Bootstrap complete for project: $PROJECT_NAME"

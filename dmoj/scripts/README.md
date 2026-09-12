@@ -1,16 +1,11 @@
 # Scripts Layout
 
-This folder contains both public operator commands and internal helpers.
+This folder contains the modular test-stack command groups and lower-level repo utilities.
 
-## Public Commands (Use These)
-- teststack/bin/dct
-- teststack/bin/dct-bootstrap
-- teststack/bin/dct-init
-
-Compatibility wrappers (stable paths):
-- dct
-- dct-bootstrap
-- dct-init
+## dct Commands
+- teststack/dct/dct
+- teststack/dct/dct-bootstrap
+- teststack/dct/dct-init
 
 Primary interface:
 - Use `dct` for daily operations (`up`, `down`, `stop`, `start`, `ps`, `logs`, `exec`).
@@ -18,37 +13,28 @@ Primary interface:
 - Use `dct bootstrap` for first-run or reseed/reset workflows.
 - `dct down -v` is destructive and prompts for confirmation unless `--yes` is passed.
 
-## Internal Module
+## Shared dct Module
 - teststack/common.sh
 - teststack/dct-main.sh
 - teststack/bootstrap-main.sh
-- teststack/bin/test-up
-- teststack/bin/test-down
-- teststack/bin/test-verify
-- teststack/bin/test-seed-import
-- teststack/bin/test-seed-export
-- teststack/bin/test-bootstrap
-- teststack/legacy/test-up
-- teststack/legacy/test-down
-- teststack/legacy/test-verify
-- teststack/legacy/test-seed-import
-- teststack/legacy/test-seed-export
-- teststack/legacy/test-bootstrap
 
-These are implementation files used by `dct`/`dct-bootstrap` wrappers.
+These are implementation files used by the `teststack/dct/*` commands.
 
-## Low-Level Legacy Helpers
-- test-up
-- test-down
-- test-verify
-- test-seed-import
-- test-seed-export
+## Lifecycle Commands
+- teststack/lifecycle/test-up
+- teststack/lifecycle/test-down
+- teststack/lifecycle/test-verify
+- teststack/lifecycle/test-bootstrap
 
-These top-level `test-*` files are compatibility wrappers that forward to
-`teststack/bin/*`.
+## Seed Commands
+- teststack/seed/test-seed-import
+- teststack/seed/test-seed-export
 
-These are still used internally and can be invoked directly for debugging,
-but normal operator workflow should prefer `dct`.
+Lifecycle and seed commands support debugging, but normal operator workflow should prefer `dct`.
+
+## Maintenance Commands
+- teststack/maintenance/enter_site
+- teststack/maintenance/initialize
 
 ## Django/Repo Utility Scripts
 - copy_static

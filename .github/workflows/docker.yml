@@ -17,7 +17,7 @@ jobs:
         working-directory: dmoj
       - name: Test images
         run: |
-          ./scripts/initialize
+          ./scripts/teststack/maintenance/initialize
           docker compose up -d
           sleep 10
           COMPOSE_EXEC_FLAGS="-T" ./scripts/copy_static

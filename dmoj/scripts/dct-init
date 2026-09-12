@@ -1,6 +1,0 @@
-#!/usr/bin/env bash
-# Source this compatibility wrapper or the canonical teststack/bin/dct-init.
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=/dev/null
-source "$SCRIPT_DIR/teststack/bin/dct-init"

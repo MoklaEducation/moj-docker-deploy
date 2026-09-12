@@ -25,11 +25,12 @@ Safely run and test the DMOJ stack on a different machine using this repository 
 - dmoj/docker-compose.yml
 - dmoj/docker-compose.test.yml
 - dmoj/.env.test.example
-- dmoj/scripts/test-up
-- dmoj/scripts/test-down
-- dmoj/scripts/test-verify
-- dmoj/scripts/test-seed-import
-- dmoj/scripts/test-bootstrap
+- dmoj/scripts/teststack/dct/dct
+- dmoj/scripts/teststack/lifecycle/test-up
+- dmoj/scripts/teststack/lifecycle/test-down
+- dmoj/scripts/teststack/lifecycle/test-verify
+- dmoj/scripts/teststack/seed/test-seed-import
+- dmoj/scripts/teststack/lifecycle/test-bootstrap
 - dmoj/seeds/latest.sql.gz
 - dmoj/nginx/conf.d/nginx.test.conf
 - dmoj/nginx/certs/test/README.md
@@ -83,23 +84,23 @@ docker compose --env-file .env.test -f docker-compose.yml -f docker-compose.test
 
 ## Step 5: Bring up isolated test stack
 ```bash
-PROJECT_NAME=dmoj-test ENV_FILE=.env.test ./scripts/test-up
+PROJECT_NAME=dmoj-test ENV_FILE=.env.test ./scripts/teststack/lifecycle/test-up
 ```
 
 ## Step 6: Seed the test database
 Option A (recommended one-command bootstrap):
 ```bash
-PROJECT_NAME=dmoj-test ENV_FILE=.env.test SEED_DUMP=seeds/latest.sql.gz ./scripts/test-bootstrap
+PROJECT_NAME=dmoj-test ENV_FILE=.env.test SEED_DUMP=seeds/latest.sql.gz ./scripts/teststack/lifecycle/test-bootstrap
 ```
 
 Option B (manual seed import after stack is up):
 ```bash
-PROJECT_NAME=dmoj-test ENV_FILE=.env.test SEED_DUMP=seeds/latest.sql.gz RESET_DB_ON_IMPORT=1 ./scripts/test-seed-import
+PROJECT_NAME=dmoj-test ENV_FILE=.env.test SEED_DUMP=seeds/latest.sql.gz RESET_DB_ON_IMPORT=1 ./scripts/teststack/seed/test-seed-import
 ```
 
 ## Step 7: Verify services
 ```bash
-PROJECT_NAME=dmoj-test ENV_FILE=.env.test ./scripts/test-verify
+PROJECT_NAME=dmoj-test ENV_FILE=.env.test ./scripts/teststack/lifecycle/test-verify
 ```
 
 Checkpoints:
@@ -110,12 +111,12 @@ Checkpoints:
 ## Step 8: Stop or teardown test stack
 Stop and remove containers/network (keep volumes):
 ```bash
-PROJECT_NAME=dmoj-test ENV_FILE=.env.test ./scripts/test-down
+PROJECT_NAME=dmoj-test ENV_FILE=.env.test ./scripts/teststack/lifecycle/test-down
 ```
 
 Destructive teardown including volumes (test-only):
 ```bash
-PROJECT_NAME=dmoj-test ENV_FILE=.env.test REMOVE_VOLUMES=1 ./scripts/test-down
+PROJECT_NAME=dmoj-test ENV_FILE=.env.test REMOVE_VOLUMES=1 ./scripts/teststack/lifecycle/test-down
 ```
 
 ## Troubleshooting

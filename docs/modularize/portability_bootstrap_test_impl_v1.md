@@ -134,7 +134,7 @@ Expectation:
 
 ### Step 9: Start and seed
 ```bash
-PROJECT_NAME=dmoj-test ENV_FILE=.env.test SEED_DUMP=seeds/latest.sql.gz ./scripts/test-bootstrap
+PROJECT_NAME=dmoj-test ENV_FILE=.env.test SEED_DUMP=seeds/latest.sql.gz ./scripts/teststack/lifecycle/test-bootstrap
 ```
 Expectation:
 - exits with code 0.
@@ -147,7 +147,7 @@ What this command does:
 - PROJECT_NAME=dmoj-test: isolates containers/networks/volumes under a test-only compose project name.
 - ENV_FILE=.env.test: forces test ports/host settings from the test env file.
 - SEED_DUMP=seeds/latest.sql.gz: tells seed import which SQL dump to load.
-- ./scripts/test-bootstrap: orchestrates startup + DB import + migrate + style/static build + verify.
+- ./scripts/teststack/lifecycle/test-bootstrap: orchestrates startup + DB import + migrate + style/static build + verify.
 
 ### Step 9a: Do I always need this exact command?
 Short answer:
@@ -166,7 +166,7 @@ Use test-up (or docker compose up) when:
 
 Preferred restart command in this repo (keeps test overlay and checks):
 ```bash
-PROJECT_NAME=dmoj-test ENV_FILE=.env.test ./scripts/test-up
+PROJECT_NAME=dmoj-test ENV_FILE=.env.test ./scripts/teststack/lifecycle/test-up
 ```
 
 Direct compose equivalent:
@@ -179,7 +179,7 @@ Important:
 
 ### Step 10: Verify stack
 ```bash
-PROJECT_NAME=dmoj-test ENV_FILE=.env.test ./scripts/test-verify
+PROJECT_NAME=dmoj-test ENV_FILE=.env.test ./scripts/teststack/lifecycle/test-verify
 ```
 Expectation:
 - script exits with code 0.
@@ -206,12 +206,12 @@ Re-check Step 11.
 ## Teardown
 Stop and remove containers/network:
 ```bash
-PROJECT_NAME=dmoj-test ENV_FILE=.env.test ./scripts/test-down
+PROJECT_NAME=dmoj-test ENV_FILE=.env.test ./scripts/teststack/lifecycle/test-down
 ```
 
 Also remove volumes (destructive, test-only):
 ```bash
-PROJECT_NAME=dmoj-test ENV_FILE=.env.test REMOVE_VOLUMES=1 ./scripts/test-down
+PROJECT_NAME=dmoj-test ENV_FILE=.env.test REMOVE_VOLUMES=1 ./scripts/teststack/lifecycle/test-down
 ```
 
 `-v` meaning in direct compose usage:

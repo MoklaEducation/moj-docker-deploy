@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Source this file to enable dct commands in the current shell.
 # Usage:
-#   source /path/to/moj-docker-deploy/dmoj/scripts/teststack/bin/dct-init
+#   source /path/to/moj-docker-deploy/dmoj/scripts/teststack/dct/dct-init
 
 # Intentionally do not set strict shell options here because this file is sourced.
 # Changing shell options in a sourced script can unexpectedly terminate the user's shell.

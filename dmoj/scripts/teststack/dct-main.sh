@@ -187,7 +187,7 @@ case "$command" in
   verify)
     shift
     assert_safe_test_context || exit 2
-    env PROJECT_NAME="$PROJECT_NAME" ENV_FILE="$ENV_FILE" "$LEGACY_SCRIPTS_DIR/test-verify" "$@"
+    env PROJECT_NAME="$PROJECT_NAME" ENV_FILE="$ENV_FILE" "$LIFECYCLE_SCRIPTS_DIR/test-verify" "$@"
     exit $?
     ;;
   doctor)
@@ -198,13 +198,13 @@ case "$command" in
   seed-import)
     shift
     assert_safe_test_context || exit 2
-    env PROJECT_NAME="$PROJECT_NAME" ENV_FILE="$ENV_FILE" "$LEGACY_SCRIPTS_DIR/test-seed-import" "$@"
+    env PROJECT_NAME="$PROJECT_NAME" ENV_FILE="$ENV_FILE" "$SEED_SCRIPTS_DIR/test-seed-import" "$@"
     exit $?
     ;;
   seed-export)
     shift
     assert_safe_test_context || exit 2
-    env PROJECT_NAME="$PROJECT_NAME" ENV_FILE="$ENV_FILE" "$LEGACY_SCRIPTS_DIR/test-seed-export" "$@"
+    env PROJECT_NAME="$PROJECT_NAME" ENV_FILE="$ENV_FILE" "$SEED_SCRIPTS_DIR/test-seed-export" "$@"
     exit $?
     ;;
   status)
