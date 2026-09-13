@@ -201,7 +201,8 @@ Implementation notes:
 - `dct keycloak down -v --yes` removes only the dedicated `${PROJECT_NAME}_keycloak-db-data` volume.
 - `dct keycloak bootstrap --yes` creates the ignored local env file from the example when absent, starts Keycloak, verifies the external issuer, and creates or updates the disposable test user from local env values.
 - `KEYCLOAK_TEST_USER` and `KEYCLOAK_TEST_USER_PASSWORD` belong only in the ignored `environment/keycloak.test.env`; the user password is not stored in the realm export.
-- Existing local env files created before this automation must be updated with the two new test-user variables before running `dct keycloak bootstrap --yes`.
+- `KEYCLOAK_TEST_USER_EMAIL`, `KEYCLOAK_TEST_USER_FIRST_NAME`, and `KEYCLOAK_TEST_USER_LAST_NAME` are also read from the ignored env file and applied during bootstrap, so first login does not require profile completion.
+- Existing local env files created before this automation must be updated with the five test-user variables before running `dct keycloak bootstrap --yes`.
 
 Things to verify:
 

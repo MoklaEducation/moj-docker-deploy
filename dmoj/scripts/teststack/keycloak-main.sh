@@ -50,8 +50,9 @@ doctor() {
     # shellcheck disable=SC1090
     source "$KEYCLOAK_ENV_FILE"
     set +a
-    [[ -n "${KEYCLOAK_TEST_USER:-}" ]] || missing+=("KEYCLOAK_TEST_USER in $KEYCLOAK_ENV_FILE")
-    [[ -n "${KEYCLOAK_TEST_USER_PASSWORD:-}" ]] || missing+=("KEYCLOAK_TEST_USER_PASSWORD in $KEYCLOAK_ENV_FILE")
+    for required in KEYCLOAK_TEST_USER KEYCLOAK_TEST_USER_PASSWORD KEYCLOAK_TEST_USER_EMAIL KEYCLOAK_TEST_USER_FIRST_NAME KEYCLOAK_TEST_USER_LAST_NAME; do
+      [[ -n "${!required:-}" ]] || missing+=("$required in $KEYCLOAK_ENV_FILE")
+    done
   fi
 
   if (( ${#missing[@]} > 0 )); then
@@ -85,7 +86,7 @@ configure_test_user() {
   source "$KEYCLOAK_ENV_FILE"
   set +a
 
-  for required in KEYCLOAK_ADMIN KEYCLOAK_ADMIN_PASSWORD KEYCLOAK_TEST_USER KEYCLOAK_TEST_USER_PASSWORD; do
+  for required in KEYCLOAK_ADMIN KEYCLOAK_ADMIN_PASSWORD KEYCLOAK_TEST_USER KEYCLOAK_TEST_USER_PASSWORD KEYCLOAK_TEST_USER_EMAIL KEYCLOAK_TEST_USER_FIRST_NAME KEYCLOAK_TEST_USER_LAST_NAME; do
     if [[ -z "${!required:-}" ]]; then
       echo "Missing $required in $KEYCLOAK_ENV_FILE"
       return 1
@@ -97,6 +98,9 @@ configure_test_user() {
     -e KEYCLOAK_ADMIN_PASSWORD="$KEYCLOAK_ADMIN_PASSWORD" \
     -e KEYCLOAK_TEST_USER="$KEYCLOAK_TEST_USER" \
     -e KEYCLOAK_TEST_USER_PASSWORD="$KEYCLOAK_TEST_USER_PASSWORD" \
+    -e KEYCLOAK_TEST_USER_EMAIL="$KEYCLOAK_TEST_USER_EMAIL" \
+    -e KEYCLOAK_TEST_USER_FIRST_NAME="$KEYCLOAK_TEST_USER_FIRST_NAME" \
+    -e KEYCLOAK_TEST_USER_LAST_NAME="$KEYCLOAK_TEST_USER_LAST_NAME" \
     keycloak bash -lc '
       set -e
       /opt/keycloak/bin/kcadm.sh config credentials \
@@ -105,12 +109,27 @@ configure_test_user() {
         --user "$KEYCLOAK_ADMIN" \
         --password "$KEYCLOAK_ADMIN_PASSWORD" >/dev/null
 
-      if ! /opt/keycloak/bin/kcadm.sh get users -r dmoj-test \
-        -q username="$KEYCLOAK_TEST_USER" --fields id | grep -q '"id"'; then
+      user_id="$(/opt/keycloak/bin/kcadm.sh get users -r dmoj-test \
+        -q username="$KEYCLOAK_TEST_USER" --fields id --format csv | tail -n 1)"
+      user_id="${user_id//\"/}"
+      if [[ -z "$user_id" ]]; then
         /opt/keycloak/bin/kcadm.sh create users -r dmoj-test \
-          -s username="$KEYCLOAK_TEST_USER" -s enabled=true >/dev/null
+          -s username="$KEYCLOAK_TEST_USER" \
+          -s email="$KEYCLOAK_TEST_USER_EMAIL" \
+          -s firstName="$KEYCLOAK_TEST_USER_FIRST_NAME" \
+          -s lastName="$KEYCLOAK_TEST_USER_LAST_NAME" \
+          -s enabled=true >/dev/null
+        user_id="$(/opt/keycloak/bin/kcadm.sh get users -r dmoj-test \
+          -q username="$KEYCLOAK_TEST_USER" --fields id --format csv | tail -n 1)"
+        user_id="${user_id//\"/}"
       fi
 
+      [[ -n "$user_id" ]]
+      /opt/keycloak/bin/kcadm.sh update "users/$user_id" -r dmoj-test \
+        -s email="$KEYCLOAK_TEST_USER_EMAIL" \
+        -s firstName="$KEYCLOAK_TEST_USER_FIRST_NAME" \
+        -s lastName="$KEYCLOAK_TEST_USER_LAST_NAME" \
+        -s enabled=true >/dev/null
       /opt/keycloak/bin/kcadm.sh set-password -r dmoj-test \
         --username "$KEYCLOAK_TEST_USER" --new-password "$KEYCLOAK_TEST_USER_PASSWORD" >/dev/null
       echo "Configured Keycloak test user: $KEYCLOAK_TEST_USER"
