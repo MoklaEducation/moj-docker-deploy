@@ -68,14 +68,18 @@ doctor() {
 
 verify() {
   require_env
-  local discovery issuer
-  discovery="$(curl --fail --silent --show-error --cacert "$KEYCLOAK_CERT" --resolve "$KEYCLOAK_HOST:443:127.0.0.1" "https://$KEYCLOAK_HOST/realms/master/.well-known/openid-configuration")"
-  issuer="$(printf '%s' "$discovery" | jq -r '.issuer')"
-  [[ "$issuer" == "https://$KEYCLOAK_HOST/realms/master" ]] || {
-    echo "Unexpected Keycloak issuer: $issuer"
-    return 1
-  }
-  echo "Keycloak discovery OK: $issuer"
+  local realm discovery issuer
+  for realm in master dmoj-test; do
+    discovery="$(curl --fail --silent --show-error --cacert "$KEYCLOAK_CERT" \
+      --resolve "$KEYCLOAK_HOST:443:127.0.0.1" \
+      "https://$KEYCLOAK_HOST/realms/$realm/.well-known/openid-configuration")"
+    issuer="$(printf '%s' "$discovery" | jq -r '.issuer')"
+    [[ "$issuer" == "https://$KEYCLOAK_HOST/realms/$realm" ]] || {
+      echo "Unexpected Keycloak issuer for $realm: $issuer"
+      return 1
+    }
+    echo "Keycloak discovery OK: $issuer"
+  done
 }
 
 configure_test_user() {

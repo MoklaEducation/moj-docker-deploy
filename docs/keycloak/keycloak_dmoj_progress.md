@@ -263,7 +263,7 @@ Exit criteria for phase completion:
 
 ## Phase 6: Hardened Verification and Regression Coverage
 
-Status: pending
+Status: in progress
 
 Scope:
 - Add final verification commands for Keycloak availability and DMOJ behavior.
@@ -276,6 +276,23 @@ Things to verify:
 - Command: `dct keycloak status`
 - Command: `dct bootstrap` / `dct verify` when Keycloak is unavailable
 - Manual check: DMOJ test-stack baseline still works when Keycloak is down.
+
+Phase 6 verification commands:
+
+```bash
+cd /home/ubuntu/repo/test-medocker-moj-004/moj-docker-deploy/dmoj
+source ./scripts/teststack/dct/dct-init
+dct keycloak verify
+dct keycloak doctor
+dct verify
+```
+
+`dct keycloak verify` checks both the `master` and `dmoj-test` discovery issuers. `dct verify` checks the DMOJ stack separately; a Keycloak discovery failure should not be confused with a DMOJ site failure.
+
+Validation result:
+- `dct keycloak verify` passed for both `master` and `dmoj-test`.
+- `dct verify` returned HTTP 200 while Keycloak was stopped, confirming anonymous DMOJ browsing remains available.
+- Keycloak was started again successfully and both discovery checks passed after restoration.
 
 Exit criteria for phase completion:
 - Keycloak health checks are explicit and actionable.
@@ -302,3 +319,32 @@ docker compose --env-file environment/keycloak.test.env \
 - Prefer committed `.example` files and explicit local copy steps.
 - Keep phase boundaries separate and avoid combining unrelated fixes into the same commit.
 - Use this document as the official checkpoint log, updating it as each phase progresses or completes.
+
+### DMOJ submodule repository
+
+The DMOJ application under `dmoj/repo` is a Git submodule currently recorded at a detached commit from the upstream DMOJ repository. Local application commits remain local until pushed to a repository that the deployment repository can access.
+
+When a private application copy is ready:
+
+```bash
+cd dmoj/repo
+git switch -c keycloak-oidc-phase5
+git remote rename origin upstream
+git remote add origin git@github.com:YOUR_ORG/dmoj-keycloak.git
+git add dmoj/settings.py dmoj/local_settings.py judge/forms.py judge/social_auth.py templates/registration/login.html requirements.txt
+git commit -m "auth: integrate Keycloak OIDC"
+git push -u origin keycloak-oidc-phase5
+```
+
+Then update the outer repository's submodule URL and recorded commit:
+
+```bash
+cd ../..
+git config -f .gitmodules submodule.dmoj/repo.url git@github.com:YOUR_ORG/dmoj-keycloak.git
+git submodule sync dmoj/repo
+git add .gitmodules dmoj/repo
+git commit -m "keycloak: use private DMOJ repository"
+git push
+```
+
+Do not commit `environment/keycloak.test.env` or real credentials. Review pre-existing untracked files in the submodule before staging.
