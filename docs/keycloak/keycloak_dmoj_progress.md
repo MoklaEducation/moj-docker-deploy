@@ -313,6 +313,71 @@ docker compose --env-file environment/keycloak.test.env \
 
 ---
 
+## Phase 7: Production Readiness Review
+
+Status: in progress
+
+This phase is a review and recovery exercise only. Do not add production Compose files, public hostnames, production certificates, or production secrets as part of this phase.
+
+### Merge gate before master
+
+Do not merge the Keycloak branch into `master` until the production deployment path has been tested and any necessary changes have been made. The test stack passing is not sufficient proof of production safety.
+
+- Verify the normal production Compose build with the changed `dmoj/site/Dockerfile`.
+- Confirm that the `moj/dmoj-base:latest` image is available wherever production builds run, or change the image/build arrangement before merging.
+- Confirm that test-only Compose overlays, local certificates, ignored env files, and test hostnames are not loaded by the production deployment.
+- Commit the DMOJ OIDC changes in the `dmoj/repo` submodule on a pushed branch, then update and commit the outer repository's submodule pointer.
+- Review the final production diff and run the existing production deployment validation before approving the merge.
+
+### Database backup and restore
+
+- Record the exact pinned Keycloak and MariaDB image versions in the production deployment record.
+- Back up the dedicated Keycloak database using an approved secret-management path; never put the password in shell history or Git.
+- Restore the backup into a disposable environment and verify that Keycloak starts, the realm exists, and a test OIDC login succeeds.
+- Define retention, encryption, access control, backup monitoring, and restore ownership.
+
+Example disposable-environment shape:
+
+```bash
+docker exec <keycloak-db-container> mariadb-dump \
+  -u root -p keycloak > keycloak-test.sql
+docker exec -i <keycloak-db-container> mariadb \
+  -u root -p keycloak < keycloak-test.sql
+```
+
+Do not run these example commands against production until the secret-handling and storage procedure has been approved.
+
+### Realm export and recovery
+
+- Export the production realm through an approved protected workflow.
+- Confirm exports do not expose client secrets, user passwords, or administrator credentials in an uncontrolled location.
+- Import the export into a disposable Keycloak instance and verify issuer, clients, redirect URIs, roles, and recovery procedures.
+- Document whether client secrets are regenerated during recovery and where the replacement is stored.
+
+### Upgrade and rollback
+
+- Pin Keycloak and MariaDB versions; never use `latest`.
+- Record the current versions, schema migration behavior, release notes, and rollback limitations before upgrading.
+- Test the upgrade against a restored database backup and realm export.
+- Define health checks and a rollback decision point before production traffic is moved.
+
+### TLS, proxy, and network controls
+
+- Use production certificates whose SANs cover every public hostname used by browser and backend OIDC flows.
+- Confirm the public issuer exactly matches the configured production issuer.
+- Expose only the reverse proxy publicly; keep Keycloak management and database ports private.
+- Restrict proxy headers and trusted proxy addresses to the actual reverse-proxy network.
+- Verify redirect URIs are exact and contain no test or development hostname.
+
+### Operations and recovery
+
+- Set explicit CPU and memory limits and alert on saturation, restarts, database failures, and failed OIDC discovery.
+- Document administrator recovery, emergency client-secret rotation, and disabled-account recovery.
+- Define who owns Keycloak, MariaDB backups, TLS renewal, monitoring, and incident response.
+- Require an explicit approval before any production deployment work begins.
+
+---
+
 ## Notes for future work
 
 - Keep all runtime env files, realm exports, and local secrets out of Git.
