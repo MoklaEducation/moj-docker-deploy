@@ -23,6 +23,7 @@ Primary subcommands:
   doctor                   Show environment/tooling/prereq diagnostics
   seed-import              Run seed import script
   seed-export              Run seed export script
+  keycloak <command>       Manage the isolated Keycloak test stack
   status                   Alias for: ps
 
 Compose passthrough:
@@ -205,6 +206,12 @@ case "$command" in
     shift
     assert_safe_test_context || exit 2
     env PROJECT_NAME="$PROJECT_NAME" ENV_FILE="$ENV_FILE" "$SEED_SCRIPTS_DIR/test-seed-export" "$@"
+    exit $?
+    ;;
+  keycloak)
+    shift
+    assert_safe_test_context || exit 2
+    env PROJECT_NAME="$PROJECT_NAME" KEYCLOAK_ENV_FILE="$KEYCLOAK_ENV_FILE" "$SCRIPT_DIR/keycloak-main.sh" "$@"
     exit $?
     ;;
   status)

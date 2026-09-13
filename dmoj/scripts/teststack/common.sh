@@ -14,6 +14,8 @@ SEED_DUMP="${SEED_DUMP:-seeds/latest.sql.gz}"
 TEST_HOST="${DMOJ_TEST_HOST:-code.test.local}"
 
 COMPOSE=(docker compose --env-file "$ENV_FILE" -f docker-compose.yml -f docker-compose.test.yml -p "$PROJECT_NAME")
+KEYCLOAK_ENV_FILE="${KEYCLOAK_ENV_FILE:-environment/keycloak.test.env}"
+KEYCLOAK_COMPOSE=(docker compose --env-file "$KEYCLOAK_ENV_FILE" -f docker-compose.yml -f docker-compose.test.yml -f docker-compose.keycloak.test.yml -p "$PROJECT_NAME")
 
 is_test_like_env_file() {
   local base

@@ -185,7 +185,72 @@ Manual test-user procedure and console distinction:
 
 ---
 
-## Phase 4: DMOJ OIDC Integration
+## Phase 4: Keycloak Lifecycle Commands
+
+Status: in progress
+
+Scope:
+- Add the `dct keycloak` lifecycle command family.
+- Keep Keycloak database and service operations separate from ordinary DMOJ lifecycle commands.
+- Provide diagnostics, bootstrap, status, logs, and OIDC discovery verification.
+
+Implementation notes:
+- New wrapper: `dmoj/scripts/teststack/keycloak-main.sh`.
+- Keycloak commands use `environment/keycloak.test.env` by default and can be pointed at another test env with `KEYCLOAK_ENV_FILE`.
+- `dct keycloak down` removes only the Keycloak containers; it does not stop or remove DMOJ services.
+- `dct keycloak down -v --yes` removes only the dedicated `${PROJECT_NAME}_keycloak-db-data` volume.
+- `dct keycloak bootstrap --yes` creates the ignored local env file from the example when absent, starts Keycloak, verifies the external issuer, and creates or updates the disposable test user from local env values.
+- `KEYCLOAK_TEST_USER` and `KEYCLOAK_TEST_USER_PASSWORD` belong only in the ignored `environment/keycloak.test.env`; the user password is not stored in the realm export.
+- Existing local env files created before this automation must be updated with the two new test-user variables before running `dct keycloak bootstrap --yes`.
+
+Things to verify:
+
+```bash
+cd /home/ubuntu/repo/test-medocker-moj-004/moj-docker-deploy/dmoj
+source ./scripts/teststack/dct/dct-init
+dct keycloak doctor
+dct keycloak up -d
+dct keycloak status
+dct keycloak verify
+dct keycloak logs
+dct keycloak down
+dct keycloak up -d
+dct keycloak down -v --yes
+dct keycloak bootstrap --yes
+```
+
+Expected result: ordinary stop/start preserves Keycloak state; `down -v --yes` resets only Keycloak state; DMOJ containers and volumes remain present; `verify` confirms the issuer `https://auth.test.local/realms/master`.
+
+Manual check: run `dct status` before and after Keycloak teardown and confirm the DMOJ services remain available.
+
+Manual test-user password reset:
+
+```bash
+cd /home/ubuntu/repo/test-medocker-moj-004/moj-docker-deploy/dmoj
+set -a
+source environment/keycloak.test.env
+set +a
+
+docker compose \
+  --env-file environment/keycloak.test.env \
+  -f docker-compose.yml \
+  -f docker-compose.test.yml \
+  -f docker-compose.keycloak.test.yml \
+  -p dmoj-test exec -T keycloak \
+  /opt/keycloak/bin/kcadm.sh set-password \
+  -r dmoj-test \
+  --username "$KEYCLOAK_TEST_USER" \
+  --new-password "$KEYCLOAK_TEST_USER_PASSWORD"
+```
+
+Caveat: run this only after `dct keycloak status` shows `keycloak` as healthy. The Keycloak database credentials in `environment/keycloak.test.env` must match the credentials used when the `dmoj-test_keycloak-db-data` volume was initialized. If they do not match, reset the disposable Keycloak stack first with `dct keycloak down -v --yes`, then run `dct keycloak bootstrap --yes`.
+
+Exit criteria for phase completion:
+- Keycloak lifecycle commands are available through `dct`.
+- Keycloak reset operations cannot remove DMOJ services or volumes.
+- Discovery verification reports a usable Keycloak endpoint and exact issuer.
+
+## Phase 5: DMOJ OIDC Integration
 
 Status: pending
 
