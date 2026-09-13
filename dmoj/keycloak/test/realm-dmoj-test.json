@@ -1,0 +1,28 @@
+{
+  "realm": "dmoj-test",
+  "enabled": true,
+  "displayName": "DMOJ Local Test",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": false,
+  "clients": [
+    {
+      "clientId": "dmoj-web",
+      "name": "DMOJ local test web",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "REPLACE_WITH_LOCAL_CLIENT_SECRET",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "https://code.test.local/complete/openidconnect/"
+      ],
+      "webOrigins": [
+        "https://code.test.local"
+      ]
+    }
+  ]
+}

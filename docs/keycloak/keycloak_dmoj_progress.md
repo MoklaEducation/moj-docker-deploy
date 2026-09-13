@@ -4,8 +4,11 @@ This document tracks implementation progress for the isolated local Keycloak tes
 
 ## Current status
 
-- Current phase: Phase 1
+- Current phase: Phase 3
 - Phase 0 status: committed
+- Phase 1 status: completed
+- Phase 2 status: completed
+- Phase 3 status: in progress
 - Working assumption: local Keycloak integration is being developed in a dedicated test-only overlay and isolated database, without affecting the main DMOJ database or production naming.
 
 ---
@@ -41,7 +44,7 @@ Exit criteria for phase completion:
 
 ## Phase 1: Dedicated Keycloak MariaDB
 
-Status: in progress
+Status: completed
 
 Scope:
 - Add a dedicated `keycloak-db` MariaDB service in a dedicated Keycloak compose overlay.
@@ -114,7 +117,7 @@ Note: if the DB password was changed manually in the container or env file, the 
 
 ## Phase 2: Keycloak Service and Local HTTPS Routing
 
-Status: pending
+Status: completed
 
 Scope:
 - Add the Keycloak service itself, pinned image version, health checks, and network configuration.
@@ -146,13 +149,20 @@ Troubleshooting note:
 
 ## Phase 3: Reproducible Realm and Manual Test Users
 
-Status: pending
+Status: completed
 
 Scope:
 - Add a sanitized `realm-dmoj-test.json` file.
 - Define a confidential OIDC client for DMOJ.
 - Add manual test users or clear admin-console instructions.
 - Ensure realm import automation won't overwrite a real or previously configured realm accidentally.
+
+Implementation notes:
+- `dmoj/keycloak/test/realm-dmoj-test.json` defines the local `dmoj-test` realm and `dmoj-web` confidential client.
+- The client permits only `https://code.test.local/complete/openidconnect/` as its redirect URI.
+- The Keycloak overlay mounts the sanitized realm file read-only and starts with `--import-realm`.
+- Existing realms are not overwritten by the import; disposable users are created manually in the admin console so passwords remain local-only.
+- The client secret remains a placeholder until it is replaced in the local Keycloak console or a future ignored local override is added.
 
 Things to verify:
 - Command: `docker compose ... up -d keycloak`
@@ -164,6 +174,14 @@ Exit criteria for phase completion:
 - Test realm and client are reproducible and not dependent on a manual hidden state.
 - Test users are known, disposable, and documented.
 - Importing the realm is safe and does not overwrite real data.
+
+Manual test-user procedure and console distinction:
+- The Keycloak administrator console is `https://auth.test.local/admin/`. Sign in here with the `master` realm admin account (`KEYCLOAK_ADMIN` and `KEYCLOAK_ADMIN_PASSWORD`). The `dmoj-test` user is not an administrator and cannot sign in to this console.
+- In the admin console, select the `dmoj-test` realm, open **Users**, and create the disposable test user.
+- Under the new user's **Credentials** tab, set a password and disable **Temporary** if the user should log in without being forced to change it. Creating the user and setting this password are required before testing authentication.
+- The `dmoj-test` user's account console is `https://auth.test.local/realms/dmoj-test/account/`. Use the test user's username and password there, or through the DMOJ OIDC login once Phase 4 is implemented.
+- The DMOJ application login is separate and is not expected to work until the Phase 4 OIDC integration is complete.
+- Keep the test user's password and any generated client secret out of Git.
 
 ---
 

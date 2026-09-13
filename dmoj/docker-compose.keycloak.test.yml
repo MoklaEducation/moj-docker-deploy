@@ -41,6 +41,7 @@ services:
       - --db-url=jdbc:mariadb://keycloak-db:3306/keycloak?characterEncoding=UTF-8
       - --db-username=${KEYCLOAK_DB_USER:-keycloak}
       - --db-password=${KEYCLOAK_DB_PASSWORD:-change-me}
+      - --import-realm
     environment:
       KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
       KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-change-me}
@@ -53,6 +54,8 @@ services:
       - nginx
     expose:
       - "8080"
+    volumes:
+      - ./keycloak/test/realm-dmoj-test.json:/opt/keycloak/data/import/realm-dmoj-test.json:ro
     healthcheck:
       test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/8080' >/dev/null 2>&1 || exit 1"]
       interval: 15s
