@@ -57,8 +57,15 @@ services:
       - "${DMOJ_TEST_HEADSCALE_METRICS_PORT:-19090}:9090"
 
   site:
+    volumes:
+      - ./nginx/certs/test/code.test.local.crt:/etc/ssl/certs/dmoj-test-ca.crt:ro
     environment:
       HOST: "${DMOJ_TEST_HOST:-code.test.local}"
+      REQUESTS_CA_BUNDLE: /etc/ssl/certs/dmoj-test-ca.crt
+      KEYCLOAK_OIDC_ENABLED: "${KEYCLOAK_OIDC_ENABLED:-0}"
+      KEYCLOAK_OIDC_CLIENT_ID: "${KEYCLOAK_OIDC_CLIENT_ID:-dmoj-web}"
+      KEYCLOAK_OIDC_CLIENT_SECRET: "${KEYCLOAK_OIDC_CLIENT_SECRET:-}"
+      KEYCLOAK_OIDC_ENDPOINT: "${KEYCLOAK_OIDC_ENDPOINT:-https://auth.test.local/realms/dmoj-test}"
     healthcheck:
       test: ["CMD-SHELL", "python3 -c \"import socket; s=socket.create_connection(('127.0.0.1', 8000), 2); s.close()\""]
       interval: 15s

@@ -70,9 +70,12 @@ services:
       keycloak:
         condition: service_healthy
     networks:
-      - keycloak
-      - nginx
-      - site
+      keycloak:
+      nginx:
+        aliases:
+          - auth.test.local
+          - code.test.local
+      site:
 
 networks:
   keycloak:

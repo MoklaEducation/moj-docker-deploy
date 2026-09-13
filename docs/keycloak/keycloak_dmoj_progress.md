@@ -4,19 +4,8 @@ This document tracks implementation progress for the isolated local Keycloak tes
 
 ## Current status
 
-- Current phase: Phase 3
-- Phase 0 status: committed
-- Phase 1 status: completed
 - Phase 2 status: completed
 - Phase 3 status: in progress
-- Working assumption: local Keycloak integration is being developed in a dedicated test-only overlay and isolated database, without affecting the main DMOJ database or production naming.
-
----
-
-## Phase 0: Planning and Repository Guardrails
-
-Status: committed
-
 Scope:
 - Add the Keycloak-specific .gitignore rules for local runtime files, secrets, and TLS assets.
 - Add the local-only Keycloak test directory with documentation.
@@ -61,31 +50,17 @@ Implementation notes:
 
 Verification checklist:
 
-```bash
-cd /home/ubuntu/repo/test-medocker-moj-004/moj-docker-deploy/dmoj
-cp environment/keycloak.test.env.example environment/keycloak.test.env
 
 # Render the merged stack to verify the overlay is valid
 docker compose --env-file environment/keycloak.test.env \
   -f docker-compose.yml -f docker-compose.test.yml -f docker-compose.keycloak.test.yml \
   -p dmoj-test config
 
-# Start only the dedicated Keycloak database
-docker compose --env-file environment/keycloak.test.env \
-  -f docker-compose.yml -f docker-compose.test.yml -f docker-compose.keycloak.test.yml \
   -p dmoj-test up -d keycloak-db
 
-# Confirm the MariaDB service responds to admin ping
-docker compose --env-file environment/keycloak.test.env \
-  -f docker-compose.yml -f docker-compose.test.yml -f docker-compose.keycloak.test.yml \
-  -p dmoj-test exec -T keycloak-db mariadb-admin ping -u root -p"$KEYCLOAK_DB_ROOT_PASSWORD"
 ```
 
-Expected result: Compose render succeeds without schema or merge errors; the `keycloak-db` container starts and reaches a healthy state; MariaDB responds successfully.
 
-Manual check: verify the DMOJ `db` service remains unrelated and unchanged.
-
-Exit criteria for phase completion:
 - `keycloak-db` runs in a dedicated Compose service and volume.
 - The service is healthy and reachable with its own credentials.
 - No DMOJ production or test DB data is shared with the Keycloak DB.
@@ -93,29 +68,13 @@ Exit criteria for phase completion:
 
 Optional reset / rebuild commands:
 
-```bash
-cd /home/ubuntu/repo/test-medocker-moj-004/moj-docker-deploy/dmoj
-
 # Stop and remove the Keycloak test stack, leaving the main DMOJ services intact
-# (this only targets the Keycloak-specific project name and services)
-docker compose --env-file environment/keycloak.test.env \
-  -f docker-compose.yml -f docker-compose.test.yml -f docker-compose.keycloak.test.yml \
-  -p dmoj-test down
-
 # Remove the dedicated Keycloak DB volume to begin from an empty local state
 docker volume rm dmoj-test_keycloak-db-data
-
-# Recreate from scratch
-docker compose --env-file environment/keycloak.test.env \
   -f docker-compose.yml -f docker-compose.test.yml -f docker-compose.keycloak.test.yml \
-  -p dmoj-test up -d keycloak-db
 ```
 
 Note: if the DB password was changed manually in the container or env file, the recreated environment must use matching values or the database will reject the root access check. The safest reset is to recreate the local env file from the example and then recreate the container stack.
-
----
-
-## Phase 2: Keycloak Service and Local HTTPS Routing
 
 Status: completed
 
@@ -200,6 +159,10 @@ Implementation notes:
 - `dct keycloak down` removes only the Keycloak containers; it does not stop or remove DMOJ services.
 - `dct keycloak down -v --yes` removes only the dedicated `${PROJECT_NAME}_keycloak-db-data` volume.
 - `dct keycloak bootstrap --yes` creates the ignored local env file from the example when absent, starts Keycloak, verifies the external issuer, and creates or updates the disposable test user from local env values.
+- Keycloak database resets do not require removing or resetting DMOJ. Use `dct keycloak down -v --yes`, not the full project `down -v`, so DMOJ containers, database data, Redis, Nginx, and other DMOJ volumes remain intact.
+- After changing OIDC settings in `environment/keycloak.test.env`, recreate only the DMOJ site container with `docker compose ... up -d --force-recreate site`; a full DMOJ teardown is unnecessary.
+- The Keycloak overlay gives the Nginx service internal Docker aliases for `auth.test.local` and `code.test.local`, allowing DMOJ to use the same HTTPS issuer URL from inside the Compose network.
+- The test site trusts the local certificate through `REQUESTS_CA_BUNDLE`; this is required for Python OIDC discovery over the self-signed local HTTPS certificate.
 - `KEYCLOAK_TEST_USER` and `KEYCLOAK_TEST_USER_PASSWORD` belong only in the ignored `environment/keycloak.test.env`; the user password is not stored in the realm export.
 - `KEYCLOAK_TEST_USER_EMAIL`, `KEYCLOAK_TEST_USER_FIRST_NAME`, and `KEYCLOAK_TEST_USER_LAST_NAME` are also read from the ignored env file and applied during bootstrap, so first login does not require profile completion.
 - Existing local env files created before this automation must be updated with the five test-user variables before running `dct keycloak bootstrap --yes`.
@@ -253,18 +216,43 @@ Exit criteria for phase completion:
 
 ## Phase 5: DMOJ OIDC Integration
 
-Status: pending
+Status: in progress
 
 Scope:
 - Add the OIDC login action to the DMOJ login flow.
 - Retain local username/password login.
-- Confirm that Keycloak users can log in without breaking the existing local auth flow.
+- Bind Keycloak identities to the OIDC issuer and subject, never to an editable email address.
+
+Implementation notes:
+- The generic OIDC backend is exposed through `judge.social_auth.KeycloakOIDC` under the `openidconnect` callback name.
+- `python-jose[cryptography]` is pinned in `repo/requirements.txt` because the installed OIDC backend requires it.
+- OIDC is enabled by `KEYCLOAK_OIDC_ENABLED=1` in the ignored `environment/keycloak.test.env`.
+- `dct keycloak bootstrap --yes` applies `KEYCLOAK_OIDC_CLIENT_SECRET` to the `dmoj-web` client, making the ignored env file the local source of truth.
+- The local username/password backend remains enabled.
+- Keycloak email is profile data and validation input; it is not used to associate an existing DMOJ account.
+- New Keycloak users use the Keycloak `preferred_username` claim as their DMOJ username automatically, so the username-selection screen is skipped.
+- If that username already belongs to another DMOJ account, Keycloak login is denied rather than selecting a different username or linking by email.
+
+Required local env values:
+
+```env
+KEYCLOAK_OIDC_ENABLED=1
+KEYCLOAK_OIDC_CLIENT_ID=dmoj-web
+KEYCLOAK_OIDC_CLIENT_SECRET=your-local-oidc-client-secret
+KEYCLOAK_OIDC_ENDPOINT=https://auth.test.local/realms/dmoj-test
+```
+
+Run `dct keycloak bootstrap --yes` after changing the secret. No manual secret copy in the Keycloak console is required; do not commit the local value.
 
 Things to verify:
 - Manual browser test: local DMOJ login page exposes the Keycloak login option.
 - Manual browser test: successful Keycloak login completes the DMOJ callback.
 - Manual browser test: denied or unlinked user flows fail gracefully.
 - Manual browser test: logout behavior is still acceptable and clearly documented.
+- Manual browser test: local username/password login still works.
+
+Validation result:
+- Browser test passed: the `dmoj-test` Keycloak user authenticated through the Keycloak login action and returned to DMOJ successfully.
 
 Exit criteria for phase completion:
 - OIDC login works end-to-end in the test stack.
@@ -273,7 +261,7 @@ Exit criteria for phase completion:
 
 ---
 
-## Phase 5: Hardened Verification and Regression Coverage
+## Phase 6: Hardened Verification and Regression Coverage
 
 Status: pending
 
@@ -293,6 +281,18 @@ Exit criteria for phase completion:
 - Keycloak health checks are explicit and actionable.
 - DMOJ baseline usability remains intact.
 - End-to-end test and regression confidence is documented.
+After rebuilding or recreating the site, generate the DMOJ static artifacts before browser checks:
+
+```bash
+docker compose --env-file environment/keycloak.test.env \
+  -f docker-compose.yml -f docker-compose.test.yml \
+  -f docker-compose.keycloak.test.yml -p dmoj-test exec -T site \
+  python3 manage.py compilejsi18n
+docker compose --env-file environment/keycloak.test.env \
+  -f docker-compose.yml -f docker-compose.test.yml \
+  -f docker-compose.keycloak.test.yml -p dmoj-test exec -T site \
+  python3 manage.py collectstatic --noinput
+```
 
 ---
 

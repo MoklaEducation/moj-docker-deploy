@@ -93,6 +93,11 @@ configure_test_user() {
     fi
   done
 
+  if [[ "${KEYCLOAK_OIDC_ENABLED:-0}" == "1" && -z "${KEYCLOAK_OIDC_CLIENT_SECRET:-}" ]]; then
+    echo "Missing KEYCLOAK_OIDC_CLIENT_SECRET in $KEYCLOAK_ENV_FILE"
+    return 1
+  fi
+
   run_compose exec -T \
     -e KEYCLOAK_ADMIN="$KEYCLOAK_ADMIN" \
     -e KEYCLOAK_ADMIN_PASSWORD="$KEYCLOAK_ADMIN_PASSWORD" \
@@ -101,6 +106,8 @@ configure_test_user() {
     -e KEYCLOAK_TEST_USER_EMAIL="$KEYCLOAK_TEST_USER_EMAIL" \
     -e KEYCLOAK_TEST_USER_FIRST_NAME="$KEYCLOAK_TEST_USER_FIRST_NAME" \
     -e KEYCLOAK_TEST_USER_LAST_NAME="$KEYCLOAK_TEST_USER_LAST_NAME" \
+    -e KEYCLOAK_OIDC_ENABLED="${KEYCLOAK_OIDC_ENABLED:-0}" \
+    -e KEYCLOAK_OIDC_CLIENT_SECRET="${KEYCLOAK_OIDC_CLIENT_SECRET:-}" \
     keycloak bash -lc '
       set -e
       /opt/keycloak/bin/kcadm.sh config credentials \
@@ -108,6 +115,16 @@ configure_test_user() {
         --realm master \
         --user "$KEYCLOAK_ADMIN" \
         --password "$KEYCLOAK_ADMIN_PASSWORD" >/dev/null
+
+      if [[ "$KEYCLOAK_OIDC_ENABLED" == "1" ]]; then
+        client_id="$(/opt/keycloak/bin/kcadm.sh get clients -r dmoj-test \
+          -q clientId=dmoj-web --fields id --format csv | tail -n 1)"
+        client_id="${client_id//\"/}"
+        [[ -n "$client_id" ]]
+        /opt/keycloak/bin/kcadm.sh update "clients/$client_id" -r dmoj-test \
+          -s secret="$KEYCLOAK_OIDC_CLIENT_SECRET" >/dev/null
+        echo "Configured Keycloak OIDC client secret: dmoj-web"
+      fi
 
       user_id="$(/opt/keycloak/bin/kcadm.sh get users -r dmoj-test \
         -q username="$KEYCLOAK_TEST_USER" --fields id --format csv | tail -n 1)"
