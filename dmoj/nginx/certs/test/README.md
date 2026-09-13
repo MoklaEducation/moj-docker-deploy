@@ -6,11 +6,15 @@ Expected filenames (used by nginx.test.conf):
 - code.test.local.crt
 - code.test.local.key
 
+The certificate must cover both hostnames used in the local test stack:
+- `code.test.local`
+- `auth.test.local`
+
 Recommended provisioning options:
 1. mkcert (best for browser-trusted local development)
    - Install mkcert on test machine.
    - Run:
-     - mkcert -cert-file code.test.local.crt -key-file code.test.local.key code.test.local
+     - mkcert -cert-file code.test.local.crt -key-file code.test.local.key code.test.local auth.test.local
 
 2. OpenSSL self-signed (quick fallback)
    - Run:
@@ -18,7 +22,7 @@ Recommended provisioning options:
        -keyout code.test.local.key \
        -out code.test.local.crt \
        -subj "/CN=code.test.local" \
-       -addext "subjectAltName=DNS:code.test.local"
+       -addext "subjectAltName=DNS:code.test.local,DNS:auth.test.local"
 
 3. Let's Encrypt staging (public test host)
    - Prefer this only when DNS points to the test machine and HTTP challenge is reachable.
