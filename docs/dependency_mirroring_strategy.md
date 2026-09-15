@@ -40,6 +40,72 @@ Push each mirror to your own Git host (GitHub or self-hosted), then re-point:
 - The four `git+https://github.com/DMOJ/...` lines in `requirements.txt` to the mirrors.
 - The `git clone` lines in `pdfoid/Dockerfile` and `texoid/Dockerfile` to the mirrors.
 
+## Naming Scheme
+
+Isolate this initiative from other, future initiatives (course platform, chat, home
+automation), and isolate risky in-progress work (the k3s migration) from the currently
+working Compose deployment, using two axes: an initiative prefix and a lifecycle stage.
+
+### Initiative prefix
+
+```text
+dmoj-*      <- this initiative (DMOJ + Keycloak + k3s)
+course-*    <- future course platform
+chat-*      <- future chat service
+home-*      <- future home automation
+```
+
+### Repository names within the initiative
+
+| Repository | Role |
+| --- | --- |
+| `dmoj-deploy` | Layer 3+4: k3s manifests, overlays, docs (this repository, eventually renamed from `moj-docker-deploy`) |
+| `dmoj-app` | Layer 1: mirror of `DMOJ/online-judge` plus local changes (replaces the `dmoj/repo` submodule) |
+| `dmoj-images` | Layer 2: Dockerfiles + CI, only if split into its own repository; otherwise a folder in `dmoj-deploy` |
+| `dmoj-vendor-wpadmin`, `dmoj-vendor-fernet-fields`, `dmoj-vendor-jsonfield`, `dmoj-vendor-ansi2html`, `dmoj-vendor-pdfoid`, `dmoj-vendor-texoid` | The six small dependency mirrors listed above |
+
+### Branches, not new repositories, isolate risky work
+
+Since a single repository with folders is preferred, isolate the k3s
+repo-restructuring effort with a branch rather than a separate repository, so
+abandoning it is a branch deletion, not a repository teardown:
+
+```text
+main                        <- current working Compose-based deployment, untouched
+experiment/k3s-migration    <- all repo-restructuring and k3s work happens here
+experiment/keycloak-oidc    <- prior Keycloak integration work
+```
+
+Escalate to a genuinely separate, throwaway repository only for a spike that is never
+merged and never depended on by anything else:
+
+```text
+dmoj-k3s-spike-2026-09
+```
+
+### Cluster namespace naming (k3s)
+
+Matches the existing `dmoj-test` Compose project-name convention:
+
+```text
+dmoj-test    <- k3s namespace for the experiment, deletable with one command
+dmoj-prod    <- created only once the migration is proven
+```
+
+```bash
+kubectl delete namespace dmoj-test
+```
+
+### Registry and image tags
+
+```text
+registry.example/dmoj/dmoj-site:sha-<commit>
+registry.example/dmoj/dmoj-base:sha-<commit>
+```
+
+Same `dmoj/` prefix as the repository naming, so the initiative is identifiable
+consistently across Git, the registry, and the cluster namespace.
+
 ## Docker Images to Re-Point
 
 | Image | Where it is used | Note |
