@@ -22,6 +22,16 @@ reviewed deployment inputs.
 | `MoklaEducation/pdfoid` | [pdfoid](https://github.com/MoklaEducation/pdfoid) | `DMOJ/pdfoid` | Renderer image source |
 | `MoklaEducation/texoid` | [texoid](https://github.com/MoklaEducation/texoid) | `DMOJ/texoid` | Renderer image source |
 
+## Platform Integration
+
+The forks and their reviewed `prod` branches are integrated into the platform monorepo:
+
+- [MoklaEducation/mokla-platform](https://github.com/MoklaEducation/mokla-platform)
+
+The monorepo's `eval/code` branch currently imports the reviewed source as Git subtrees
+under `app/code/`. This keeps source organization and runtime/image deployment work
+separate while preserving a single platform repository for the experiment.
+
 Also move ownership of the DMOJ base image away from the `ninjaclasher/*` namespace.
 
 ## Mirror Workflow
