@@ -9,6 +9,7 @@ This directory is the authoritative record for platform-level decisions. It is d
 - `image-build.md`: Layer 2 image build, registry, and release policy.
 - `instrumentation.md`: observability scope and rollout.
 - `k3s-runtime.md`: Layer 3 k3s initiative and Layer 4 operational add-ons.
+- `solo-team-roadmap.md`: high-level dependency graph, independently schedulable work, and shared delivery criteria.
 
 ## Scope Boundaries
 
