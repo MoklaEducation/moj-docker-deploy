@@ -74,7 +74,7 @@ Palette: foundation/source (teal), image build (amber), identity (pink), observa
   <tbody>
     <tr style="background-color: #087e8b; color: #ffffff"><th colspan="8" align="left">Foundation and source</th></tr>
     <tr style="background-color: #d9f4ef"><td>A</td><td>[x] Create public <code>MoklaEducation</code> forks with controlled <code>prod</code> branches and baseline tags</td><td>None</td><td>3</td><td>1.25</td><td>4 EU</td><td>K0, O0, S0</td><td><a href="dependency-mirroring.md">Dependency Mirroring</a></td></tr>
-    <tr style="background-color: #d9f4ef"><td>B</td><td>Import reviewed DMOJ source into <code>apps/dmoj</code> using subtree</td><td>A</td><td>5</td><td>1.5</td><td>8 EU</td><td>K0, O0, S0</td><td><a href="dependency-mirroring.md">Dependency Mirroring</a></td></tr>
+    <tr style="background-color: #d9f4ef"><td>B</td><td>[x] Import reviewed DMOJ source into <code>app/code/dmoj</code> using subtree</td><td>A</td><td>5</td><td>1.5</td><td>8 EU</td><td>K0, O0, S0</td><td><a href="dependency-mirroring.md">Dependency Mirroring</a></td></tr>
     <tr style="background-color: #d9822b; color: #ffffff"><th colspan="8" align="left">Image build</th></tr>
     <tr style="background-color: #ffe5a3"><td>C</td><td>Build and publish immutable Layer 2 images</td><td>B</td><td>8</td><td>1.5</td><td>12 EU</td><td>K0, O0, S0</td><td><a href="image-build.md">Image Build</a></td></tr>
     <tr style="background-color: #c44569; color: #ffffff"><th colspan="8" align="left">Identity</th></tr>
