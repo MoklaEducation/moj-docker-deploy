@@ -4,6 +4,8 @@
 
 Add Keycloak-based OpenID Connect (OIDC) login to the public DMOJ service, while first proving the complete flow in the isolated local DMOJ test stack.
 
+Platform repository, layering, and runtime boundaries are defined in [Platform Decisions](../architecture/decisions.md).
+
 Headscale is explicitly outside this plan. It may later use a separate Keycloak OIDC client in the same realm.
 
 ## Decisions and Boundaries
