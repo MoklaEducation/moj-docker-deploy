@@ -9,6 +9,20 @@ Read [Platform Decisions](decisions.md) first. This is a high-level orientation 
 - Items connected by an arrow depend on the preceding item. Unconnected items can be scheduled independently.
 - Add future work as a new short ID, a dependency edge, an owner document, and entry/exit criteria.
 
+## Effort Model
+
+Effort is relative planning capacity, not a calendar commitment. One effort unit (EU) is roughly half a focused engineering day for a familiar, bounded change. Include implementation, manual validation, documentation, and a clean commit in the base estimate.
+
+| Multiplier | Apply when the item includes |
+| --- | --- |
+| `1.0` | Documentation, known configuration, or a reversible isolated change |
+| `1.25` | New external service, credentials, or CI integration |
+| `1.5` | Cross-layer integration, persistent state, ingress, or a new operational workflow |
+| `1.75` | Authentication, public traffic, irreversible data effects, or a production cutover |
+| `2.0` | A cluster/state migration, multiple systems changing together, or an unproven recovery path |
+
+Estimated effort is `base EU x multiplier`, rounded up. Treat estimates above 12 EU as a warning to split the work into smaller independently committable items before starting.
+
 ## Dependency Graph
 
 ```mermaid
@@ -31,25 +45,55 @@ flowchart TD
 
   H0[Headscale: deferred] -. later .-> H1[Keycloak OIDC client for Headscale]
   K0 -. supports .-> H1
+
+  classDef foundation fill:#d9f4ef,stroke:#087e8b,color:#073b4c
+  classDef image fill:#ffe5a3,stroke:#d9822b,color:#5f370e
+  classDef identity fill:#ffd6e8,stroke:#c44569,color:#61122f
+  classDef observability fill:#d8efff,stroke:#268bd2,color:#073b5c
+  classDef safety fill:#ffe0d6,stroke:#d55e00,color:#642500
+  classDef runtime fill:#dff2cf,stroke:#4f8a10,color:#244500
+  classDef network fill:#e7ddff,stroke:#7654c8,color:#352060
+
+  class A,B foundation
+  class C image
+  class K0,K1 identity
+  class O0,O1,O2 observability
+  class S0 safety
+  class D,E,F runtime
+  class H0,H1 network
 ```
 
 ## Work Items
 
-| ID | Goal | Depends on | Can proceed independently with | Owner document |
-| --- | --- | --- | --- | --- |
-| A | Create `mokla-platform` private organization and vendor mirrors | None | K0, O0, S0 | [Dependency Mirroring](dependency-mirroring.md) |
-| B | Import reviewed DMOJ source into `apps/dmoj` using subtree | A | K0, O0, S0 | [Dependency Mirroring](dependency-mirroring.md) |
-| C | Build and publish immutable Layer 2 images | B | K0, O0, S0 | [Image Build](image-build.md) |
-| K0 | Run Keycloak and its dedicated MariaDB locally; prove OIDC discovery | None | A, B, O0, S0 | [Keycloak Plan](../keycloak/keycloak_dmoj_test_plan.md) |
-| K1 | Integrate generic OIDC login with DMOJ and manual identity linking | K0 | O0, S0 | [Keycloak Plan](../keycloak/keycloak_dmoj_test_plan.md) |
-| O0 | Choose observability storage, retention, alerts, and resource budget | None | A, B, K0, S0 | [Instrumentation](instrumentation.md) |
-| O1 | Deploy Alloy, Loki, Prometheus, Grafana, exporters, and one alert route | D, O0 | K1, S0 | [k3s Runtime](k3s-runtime.md) |
-| O2 | Add OpenTelemetry Collector and Tempo after a demonstrated tracing need | O1 | F | [Instrumentation](instrumentation.md) |
-| S0 | Prove backups and restores for DMOJ MariaDB, Keycloak MariaDB, and required Redis state | None | A, B, K0, O0 | [k3s Runtime](k3s-runtime.md) |
-| D | Deploy and validate a single-server k3s test cluster | C | K1, O0, S0 | [k3s Runtime](k3s-runtime.md) |
-| E | Cut over public DMOJ to single-server k3s with planned downtime | D, K1, O1, S0 | H0 | [k3s Runtime](k3s-runtime.md) |
-| F | Build a new three-server embedded-etcd cluster and migrate with planned downtime | D, S0 | O2, H0 | [k3s Runtime](k3s-runtime.md) |
-| H0 | Evaluate Headscale only when a private-admin or private-registry need is active | None | All current work | [k3s Runtime](k3s-runtime.md) |
+Palette: foundation/source (teal), image build (amber), identity (pink), observability (blue), data safety (coral), runtime (green), and private networking (lavender).
+
+<table border="1" cellpadding="8" cellspacing="0" style="border-collapse: collapse; border: 2px solid #31424a">
+  <thead>
+    <tr style="background-color: #31424a; color: #ffffff"><th>ID</th><th>Goal</th><th>Depends on</th><th>Base EU</th><th>Multiplier</th><th>Estimate</th><th>Can proceed independently with</th><th>Owner document</th></tr>
+  </thead>
+  <tbody>
+    <tr style="background-color: #087e8b; color: #ffffff"><th colspan="8" align="left">Foundation and source</th></tr>
+    <tr style="background-color: #d9f4ef"><td>A</td><td>Create <code>mokla-platform</code> private organization and vendor mirrors</td><td>None</td><td>3</td><td>1.25</td><td>4 EU</td><td>K0, O0, S0</td><td><a href="dependency-mirroring.md">Dependency Mirroring</a></td></tr>
+    <tr style="background-color: #d9f4ef"><td>B</td><td>Import reviewed DMOJ source into <code>apps/dmoj</code> using subtree</td><td>A</td><td>5</td><td>1.5</td><td>8 EU</td><td>K0, O0, S0</td><td><a href="dependency-mirroring.md">Dependency Mirroring</a></td></tr>
+    <tr style="background-color: #d9822b; color: #ffffff"><th colspan="8" align="left">Image build</th></tr>
+    <tr style="background-color: #ffe5a3"><td>C</td><td>Build and publish immutable Layer 2 images</td><td>B</td><td>8</td><td>1.5</td><td>12 EU</td><td>K0, O0, S0</td><td><a href="image-build.md">Image Build</a></td></tr>
+    <tr style="background-color: #c44569; color: #ffffff"><th colspan="8" align="left">Identity</th></tr>
+    <tr style="background-color: #ffd6e8"><td>K0</td><td>Run Keycloak and its dedicated MariaDB locally; prove OIDC discovery</td><td>None</td><td>5</td><td>1.5</td><td>8 EU</td><td>A, B, O0, S0</td><td><a href="../keycloak/keycloak_dmoj_test_plan.md">Keycloak Plan</a></td></tr>
+    <tr style="background-color: #ffd6e8"><td>K1</td><td>Integrate generic OIDC login with DMOJ and manual identity linking</td><td>K0</td><td>8</td><td>1.75</td><td>14 EU; split first</td><td>O0, S0</td><td><a href="../keycloak/keycloak_dmoj_test_plan.md">Keycloak Plan</a></td></tr>
+    <tr style="background-color: #268bd2; color: #ffffff"><th colspan="8" align="left">Observability</th></tr>
+    <tr style="background-color: #d8efff"><td>O0</td><td>Choose observability storage, retention, alerts, and resource budget</td><td>None</td><td>2</td><td>1.0</td><td>2 EU</td><td>A, B, K0, S0</td><td><a href="instrumentation.md">Instrumentation</a></td></tr>
+    <tr style="background-color: #d8efff"><td>O1</td><td>Deploy Alloy, Loki, Prometheus, Grafana, exporters, and one alert route</td><td>D, O0</td><td>8</td><td>1.5</td><td>12 EU</td><td>K1, S0</td><td><a href="k3s-runtime.md">k3s Runtime</a></td></tr>
+    <tr style="background-color: #d8efff"><td>O2</td><td>Add OpenTelemetry Collector and Tempo after a demonstrated tracing need</td><td>O1</td><td>5</td><td>1.5</td><td>8 EU</td><td>F</td><td><a href="instrumentation.md">Instrumentation</a></td></tr>
+    <tr style="background-color: #d55e00; color: #ffffff"><th colspan="8" align="left">Data safety</th></tr>
+    <tr style="background-color: #ffe0d6"><td>S0</td><td>Prove backups and restores for DMOJ MariaDB, Keycloak MariaDB, and required Redis state</td><td>None</td><td>5</td><td>1.5</td><td>8 EU</td><td>A, B, K0, O0</td><td><a href="k3s-runtime.md">k3s Runtime</a></td></tr>
+    <tr style="background-color: #4f8a10; color: #ffffff"><th colspan="8" align="left">Runtime</th></tr>
+    <tr style="background-color: #dff2cf"><td>D</td><td>Deploy and validate a single-server k3s test cluster</td><td>C</td><td>8</td><td>1.5</td><td>12 EU</td><td>K1, O0, S0</td><td><a href="k3s-runtime.md">k3s Runtime</a></td></tr>
+    <tr style="background-color: #dff2cf"><td>E</td><td>Cut over public DMOJ to single-server k3s with planned downtime</td><td>D, K1, O1, S0</td><td>5</td><td>1.75</td><td>9 EU</td><td>H0</td><td><a href="k3s-runtime.md">k3s Runtime</a></td></tr>
+    <tr style="background-color: #dff2cf"><td>F</td><td>Build a new three-server embedded-etcd cluster and migrate with planned downtime</td><td>D, S0</td><td>13</td><td>2.0</td><td>26 EU; split first</td><td>O2, H0</td><td><a href="k3s-runtime.md">k3s Runtime</a></td></tr>
+    <tr style="background-color: #7654c8; color: #ffffff"><th colspan="8" align="left">Private networking</th></tr>
+    <tr style="background-color: #e7ddff"><td>H0</td><td>Evaluate Headscale only when a private-admin or private-registry need is active</td><td>None</td><td>2</td><td>1.0</td><td>2 EU</td><td>All current work</td><td><a href="k3s-runtime.md">k3s Runtime</a></td></tr>
+  </tbody>
+</table>
 
 ## Shared Entry Criteria
 
@@ -103,4 +147,6 @@ Can run with: <IDs>
 Owner document: <relative path>
 Manual check: <one command or concise procedure>
 Exit condition: <observable result>
+Base EU: <integer>
+Multiplier: <1.0, 1.25, 1.5, 1.75, or 2.0>
 ```
