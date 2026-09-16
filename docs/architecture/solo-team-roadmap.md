@@ -73,7 +73,7 @@ Palette: foundation/source (teal), image build (amber), identity (pink), observa
   </thead>
   <tbody>
     <tr style="background-color: #087e8b; color: #ffffff"><th colspan="8" align="left">Foundation and source</th></tr>
-    <tr style="background-color: #d9f4ef"><td>A</td><td>Create <code>mokla-platform</code> private organization and vendor mirrors</td><td>None</td><td>3</td><td>1.25</td><td>4 EU</td><td>K0, O0, S0</td><td><a href="dependency-mirroring.md">Dependency Mirroring</a></td></tr>
+    <tr style="background-color: #d9f4ef"><td>A</td><td>[x] Create public <code>MoklaEducation</code> forks with controlled <code>prod</code> branches and baseline tags</td><td>None</td><td>3</td><td>1.25</td><td>4 EU</td><td>K0, O0, S0</td><td><a href="dependency-mirroring.md">Dependency Mirroring</a></td></tr>
     <tr style="background-color: #d9f4ef"><td>B</td><td>Import reviewed DMOJ source into <code>apps/dmoj</code> using subtree</td><td>A</td><td>5</td><td>1.5</td><td>8 EU</td><td>K0, O0, S0</td><td><a href="dependency-mirroring.md">Dependency Mirroring</a></td></tr>
     <tr style="background-color: #d9822b; color: #ffffff"><th colspan="8" align="left">Image build</th></tr>
     <tr style="background-color: #ffe5a3"><td>C</td><td>Build and publish immutable Layer 2 images</td><td>B</td><td>8</td><td>1.5</td><td>12 EU</td><td>K0, O0, S0</td><td><a href="image-build.md">Image Build</a></td></tr>
@@ -121,7 +121,9 @@ Finish and commit an item only when:
 
 ### Milestone 1: Reproducible Source and Local Identity
 
-Complete A, B, K0, and S0. The team can rebuild source, test Keycloak locally, and recover external state before introducing k3s.
+Complete B, K0, and S0. A is complete: the public <code>MoklaEducation</code> forks,
+controlled <code>prod</code> branches, and baseline tags exist. The team can rebuild
+source, test Keycloak locally, and recover external state before introducing k3s.
 
 ### Milestone 2: Immutable Test Runtime
 
