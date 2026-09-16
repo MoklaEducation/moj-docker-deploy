@@ -12,13 +12,13 @@ Mirror these upstream repositories in the private `mokla-platform` organization:
 
 | Mirror | Upstream | Current use |
 | --- | --- | --- |
-| `vendor-dmoj-online-judge` | `DMOJ/online-judge` | DMOJ application source; later imported to `apps/dmoj` by subtree |
-| `vendor-dmoj-wpadmin` | `DMOJ/dmoj-wpadmin` | Python dependency |
-| `vendor-dmoj-fernet-fields` | `DMOJ/django-fernet-fields` | Python dependency |
-| `vendor-dmoj-jsonfield` | `DMOJ/jsonfield` | Python dependency |
-| `vendor-dmoj-ansi2html` | `DMOJ/ansi2html` | Python dependency |
-| `vendor-dmoj-pdfoid` | `DMOJ/pdfoid` | Renderer image source |
-| `vendor-dmoj-texoid` | `DMOJ/texoid` | Renderer image source |
+| `mirror-dmoj-online-judge` | `DMOJ/online-judge` | DMOJ application source; later imported to `apps/dmoj` by subtree |
+| `mirror-dmoj-wpadmin` | `DMOJ/dmoj-wpadmin` | Python dependency |
+| `mirror-dmoj-fernet-fields` | `DMOJ/django-fernet-fields` | Python dependency |
+| `mirror-dmoj-jsonfield` | `DMOJ/jsonfield` | Python dependency |
+| `mirror-dmoj-ansi2html` | `DMOJ/ansi2html` | Python dependency |
+| `mirror-dmoj-pdfoid` | `DMOJ/pdfoid` | Renderer image source |
+| `mirror-dmoj-texoid` | `DMOJ/texoid` | Renderer image source |
 
 Also move ownership of the DMOJ base image away from the `ninjaclasher/*` namespace.
 
@@ -34,9 +34,9 @@ Also move ownership of the DMOJ base image away from the `ninjaclasher/*` namesp
 Example mirror creation:
 
 ```bash
-git clone --mirror https://github.com/DMOJ/online-judge.git vendor-dmoj-online-judge.git
-git -C vendor-dmoj-online-judge.git remote add private git@github.com:mokla-platform/vendor-dmoj-online-judge.git
-git -C vendor-dmoj-online-judge.git push --mirror private
+git clone --mirror https://github.com/DMOJ/online-judge.git mirror-dmoj-online-judge.git
+git -C mirror-dmoj-online-judge.git remote add private git@github.com:mokla-platform/mirror-dmoj-online-judge.git
+git -C mirror-dmoj-online-judge.git push --mirror private
 ```
 
 ## Subtree Import
@@ -44,9 +44,9 @@ git -C vendor-dmoj-online-judge.git push --mirror private
 After the mirror is stable, import it into the monorepo as `apps/dmoj`:
 
 ```bash
-git remote add vendor-dmoj git@github.com:mokla-platform/vendor-dmoj-online-judge.git
-git fetch vendor-dmoj
-git subtree add --prefix=apps/dmoj vendor-dmoj stable --squash
+git remote add mirror-dmoj git@github.com:mokla-platform/mirror-dmoj-online-judge.git
+git fetch mirror-dmoj
+git subtree add --prefix=apps/dmoj mirror-dmoj stable --squash
 ```
 
 Use `git subtree pull` for reviewed updates. Do not manually copy the source tree and do not recreate a submodule.
