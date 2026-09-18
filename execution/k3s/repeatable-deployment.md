@@ -207,8 +207,10 @@ the backup inventory, and recoverable without depending on Kubernetes.
 ### Phase 4: k3s Installation
 
 Install a checksum-verified, pinned k3s release using explicit configuration. Establish
-controlled administrator access and separate least-privilege identities for subsequent
-automation.
+controlled bootstrap-administrator access. Phase 5 replaces routine use of that access
+with separate least-privilege identities and RBAC.
+
+Detailed implementation handoff: [Phase 4 k3s Installation](phase-4-k3s-installation.md).
 
 Exit condition: the node, API, CoreDNS, Traefik, and local-path provisioner are healthy;
 the effective version and configuration are recorded; a second run is idempotent.
@@ -217,6 +219,8 @@ the effective version and configuration are recorded; a second run is idempotent
 
 Apply repository-owned namespaces, RBAC, quotas, default limits, network policies,
 storage configuration, and secret-delivery foundations.
+
+Detailed implementation handoff: [Phase 5 Cluster Core](phase-5-cluster-core.md).
 
 Exit condition: manifests render, server-side validation passes, access boundaries work,
 and allowed and denied network flows are exercised.
@@ -229,6 +233,8 @@ Install independently pinned and reversible add-ons in dependency order:
 2. Metrics collection and alert routing.
 3. Log collection, storage, and dashboards.
 4. Kubernetes-side backup integration.
+
+Detailed implementation handoff: [Phase 6 Cluster Add-ons](phase-6-cluster-addons.md).
 
 Exit condition: a staging certificate is issued, platform metrics and logs are visible,
 a controlled alert reaches the operator, retention and resource limits are active, and
@@ -244,11 +250,17 @@ exposure, resource headroom, and version records.
 Exit condition: one report identifies the environment, versions, checks, results, and any
 approved bounded exceptions without exposing secrets.
 
+Detailed implementation handoff:
+[Phase 7 Platform Validation](phase-7-platform-validation.md).
+
 ### Phase 8: Recovery Qualification
 
 Provision a clean test VM from the repository and documented secret inputs. Restore k3s
 state, required persistent data, and same-host MariaDB and Redis data from off-host
 backups. Run the complete platform validation workflow against the restored environment.
+
+Detailed implementation handoff:
+[Phase 8 Recovery Qualification](phase-8-recovery-qualification.md).
 
 Exit condition: the rehearsal meets the agreed RTO and RPO and requires no undocumented
 manual host changes.
@@ -259,6 +271,9 @@ Publish the validated platform contract: ingress and DNS expectations, secret-de
 interface, external data-service endpoints, storage classes, namespaces, resource
 budgets, image-pull mechanism, supported deployment method, and operational contacts or
 procedures.
+
+Detailed implementation handoff:
+[Phase 9 Application-Ready Handoff](phase-9-application-ready-handoff.md).
 
 Only after this gate passes may application manifests be applied. Application delivery
 then consumes the platform contract without taking ownership of host provisioning,
