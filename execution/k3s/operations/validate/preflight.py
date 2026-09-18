@@ -88,6 +88,81 @@ def check_controller_commands(connection_mode, report):
         report.add(f"controller.command.{command}", "pass" if result.returncode == 0 else "fail", result.stdout.strip() or "not found", f"Install {command}; secrets must remain encrypted.")
 
 
+def check_collections(requirements_path, report):
+    try:
+        requirements = yaml.safe_load(requirements_path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as exc:
+        report.add("controller.collections.pinned", "fail", f"could not read requirements: {type(exc).__name__}", "Restore host/requirements.yml.")
+        return
+    result = subprocess.run(["ansible-galaxy", "collection", "list", "--format", "json"], capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        report.add("controller.collections.pinned", "fail", "ansible-galaxy could not list installed collections", "Install the pinned collections from host/requirements.yml.")
+        return
+    try:
+        installed_locations = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        report.add("controller.collections.pinned", "fail", "ansible-galaxy returned invalid JSON", "Use a supported ansible-galaxy version.")
+        return
+    installed = {}
+    for collection_root in installed_locations.values():
+        for name, versions in collection_root.items():
+            if name in installed:
+                continue
+            if isinstance(versions, dict):
+                installed[name] = versions.get("version")
+            elif isinstance(versions, list) and versions:
+                installed[name] = versions[0].get("version")
+    mismatches = []
+    for requirement in requirements.get("collections", []):
+        expected = str(requirement["version"])
+        actual = installed.get(requirement["name"])
+        if actual != expected:
+            mismatches.append(f"{requirement['name']} expected {expected}, found {actual or 'missing'}")
+    if mismatches:
+        report.add("controller.collections.pinned", "fail", "; ".join(mismatches), "Install the exact versions listed in host/requirements.yml.")
+    else:
+        report.add("controller.collections.pinned", "pass", "all required collections match pinned versions", "")
+
+
+def check_secrets(environment_dir, report):
+    secret_path = environment_dir / "secrets.sops.yml"
+    if not secret_path.is_file():
+        report.add("secrets.encrypted", "fail", "missing secrets.sops.yml", "Create an encrypted SOPS file; do not commit plaintext secrets.")
+        return
+
+    secret_text = secret_path.read_text(encoding="utf-8", errors="replace")
+    encrypted = "sops:" in secret_text and "ENC[" in secret_text
+    report.add("secrets.encrypted", "pass" if encrypted else "fail", "SOPS metadata detected" if encrypted else "file is not recognizably encrypted", "Encrypt the required secret values with SOPS and age.")
+    if not encrypted:
+        return
+
+    decrypted = subprocess.run(["sops", "--decrypt", str(secret_path)], capture_output=True, text=True, check=False)
+    if decrypted.returncode != 0:
+        report.add("secrets.decryptable", "fail", "SOPS could not decrypt the environment secret file", "Provide the matching age identity to SOPS.")
+        return
+    report.add("secrets.decryptable", "pass", "SOPS decryption succeeded", "")
+
+    try:
+        values = yaml.safe_load(decrypted.stdout)
+    except yaml.YAMLError:
+        report.add("secrets.required_keys", "fail", "decrypted secret document is invalid YAML", "Repair the encrypted secret document.")
+        return
+    required_keys = {
+        "mariadb_root_password",
+        "redis_password",
+        "restic_password",
+        "data_services_tls_certificate",
+        "data_services_tls_private_key",
+        "data_services_ca_certificate",
+        "k3s_token_policy",
+    }
+    missing = sorted(required_keys - set(values) if isinstance(values, dict) else required_keys)
+    if missing:
+        report.add("secrets.required_keys", "fail", f"missing {len(missing)} required secret keys", "Add the missing keys without printing their values.")
+    else:
+        report.add("secrets.required_keys", "pass", "all required secret keys are present", "")
+
+
 def repository_state(repository_path):
     try:
         commit = subprocess.run(["git", "-C", str(repository_path), "rev-parse", "HEAD"], capture_output=True, text=True, check=False).stdout.strip() or None
@@ -107,7 +182,7 @@ def main():
     report.add("environment.exists", "pass", args.environment, "")
     inventory = read_yaml(args.environment_dir / "inventory.yml", report, "inventory.parse")
     platform = read_yaml(args.environment_dir / "platform.yml", report, "platform.parse")
-    connection_mode = platform.get("connection", {}).get("mode") if isinstance(platform, dict) else None
+    connection_mode = platform.get("target_connection", {}).get("mode") if isinstance(platform, dict) else None
     if platform is not None:
         try:
             schema = json.loads(args.schema.read_text(encoding="utf-8"))
@@ -120,20 +195,15 @@ def main():
         except (OSError, json.JSONDecodeError) as exc:
             report.add("platform.schema.valid", "fail", f"schema unavailable: {type(exc).__name__}", "Restore the version-controlled platform schema.")
     if connection_mode in ("local", "ssh"):
-        report.add("connection.mode.valid", "pass", connection_mode, "")
+        report.add("target_connection.mode.valid", "pass", connection_mode, "")
     else:
-        report.add("connection.mode.valid", "fail", "connection.mode must be local or ssh", "Set connection.mode to local for the current single-machine workflow.")
+        report.add("target_connection.mode.valid", "fail", "target_connection.mode must be local or ssh", "Set target_connection.mode to local for the current single-machine workflow.")
     if inventory is not None:
         check_inventory(inventory, report)
     check_controller_commands(connection_mode, report)
+    check_collections(args.environment_dir.parent.parent / "host" / "requirements.yml", report)
 
-    secret_path = args.environment_dir / "secrets.sops.yml"
-    if not secret_path.is_file():
-        report.add("secrets.encrypted", "fail", "missing secrets.sops.yml", "Create an encrypted SOPS file; do not commit plaintext secrets.")
-    else:
-        secret_text = secret_path.read_text(encoding="utf-8", errors="replace")
-        encrypted = "sops:" in secret_text and "ENC[" in secret_text
-        report.add("secrets.encrypted", "pass" if encrypted else "fail", "SOPS metadata detected" if encrypted else "file is not recognizably encrypted", "Encrypt the required secret values with SOPS and age.")
+    check_secrets(args.environment_dir, report)
     return report.write(args, connection_mode, repository_state(args.repository))
 
 

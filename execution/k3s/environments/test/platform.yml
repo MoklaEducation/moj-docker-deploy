@@ -1,5 +1,5 @@
 environment_name: test
-connection:
+target_connection:
   mode: local
 host_fqdn: localhost
 host_address: 127.0.0.1
@@ -9,6 +9,12 @@ network:
   pod_cidr: 10.42.0.0/16
   service_cidr: 10.43.0.0/16
 host:
+  os_distribution: Ubuntu
+  os_version: "26.04"
+  storage_root: /srv/mokla
+  minimum_cpu: 4
+  minimum_memory_mb: 4096
+  minimum_root_free_gb: 4
   timezone: Etc/UTC
   automation_user: ubuntu
 docker:

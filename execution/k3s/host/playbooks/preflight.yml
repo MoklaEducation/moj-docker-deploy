@@ -9,16 +9,16 @@
     - name: Verify the supported operating system
       ansible.builtin.assert:
         that:
-          - ansible_distribution == 'Ubuntu'
-          - ansible_distribution_version is version('24.04', '==')
-        fail_msg: "Expected Ubuntu 24.04, found {{ ansible_distribution }} {{ ansible_distribution_version }}."
+          - ansible_facts['distribution'] == host.os_distribution
+          - ansible_facts['distribution_version'] is version(host.os_version, '==')
+        fail_msg: "Expected {{ host.os_distribution }} {{ host.os_version }}, found {{ ansible_facts['distribution'] }} {{ ansible_facts['distribution_version'] }}."
 
     - name: Verify the supported architecture and init system
       ansible.builtin.assert:
         that:
-          - ansible_architecture in ['x86_64', 'amd64']
-          - ansible_service_mgr == 'systemd'
-          - ansible_python.version.major == 3
+          - ansible_facts['architecture'] in ['x86_64', 'amd64']
+          - ansible_facts['service_mgr'] == 'systemd'
+          - ansible_facts['python']['version']['major'] == 3
         fail_msg: "Host does not meet the supported architecture, init, or Python contract."
 
     - name: Verify configured host identity
@@ -28,12 +28,83 @@
           - host_address is defined
         fail_msg: "platform.yml must define host_fqdn and host_address."
 
+    - name: Verify CPU, memory, and root filesystem capacity
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['processor_nproc'] | int >= host.minimum_cpu | int
+          - ansible_facts['memtotal_mb'] | int >= host.minimum_memory_mb | int
+          - (ansible_facts['mounts'] | selectattr('mount', 'equalto', '/') | map(attribute='size_available') | first | int) >= (host.minimum_root_free_gb | float * 1024 * 1024 * 1024)
+        fail_msg: "Host resources are below the configured Phase 1 minimums."
+
+    - name: Inspect the configured storage-root parent
+      ansible.builtin.stat:
+        path: "{{ host.storage_root | dirname }}"
+        follow: false
+      register: storage_parent
+
+    - name: Verify storage-root parent safety without creating the root
+      ansible.builtin.assert:
+        that:
+          - storage_parent.stat.exists
+          - storage_parent.stat.isdir
+          - not storage_parent.stat.islnk
+        fail_msg: "The parent of {{ host.storage_root }} must exist, be a directory, and not be a symlink."
+
+    - name: Check time synchronization state
+      ansible.builtin.command: timedatectl show --property=NTPSynchronized --value
+      register: ntp_synchronized
+      changed_when: false
+      failed_when: false
+      retries: 12
+      delay: 5
+      until: ntp_synchronized.stdout | trim == 'yes'
+
+    - name: Verify time synchronization
+      ansible.builtin.assert:
+        that: ntp_synchronized.stdout | trim == 'yes'
+        fail_msg: "The host does not report synchronized network time."
+
+    - name: Inspect listening TCP sockets
+      ansible.builtin.command: ss -H -ltn
+      register: listening_sockets
+      changed_when: false
+
+    - name: Verify public ingress ports are available
+      ansible.builtin.assert:
+        that: "':' ~ (item | string) not in listening_sockets.stdout"
+        fail_msg: "TCP port {{ item }} is already listening."
+      loop: "{{ network.public_ingress_ports }}"
+
+    - name: Collect service state
+      ansible.builtin.service_facts:
+
+    - name: Verify conflicting Kubernetes services are absent
+      ansible.builtin.assert:
+        that: "(item not in ansible_facts.services) or (ansible_facts.services[item].state != 'running')"
+        fail_msg: "Conflicting service {{ item }} is running."
+      loop:
+        - k3s.service
+        - k3s-agent.service
+        - kubelet.service
+        - snap.microk8s.daemon-apiserver.service
+
+    - name: Inspect Docker swarm state when Docker is available
+      ansible.builtin.command: docker info --format '{{ "{{.Swarm.LocalNodeState}}" }}'
+      register: docker_swarm_state
+      changed_when: false
+      failed_when: false
+
+    - name: Verify Docker swarm is not active
+      ansible.builtin.assert:
+        that: docker_swarm_state.rc != 0 or docker_swarm_state.stdout | trim in ['inactive', '']
+        fail_msg: "Docker Swarm is active and conflicts with the planned host ownership model."
+
     - name: Record immutable remote facts
       ansible.builtin.debug:
         msg:
-          hostname: "{{ ansible_hostname }}"
-          fqdn: "{{ ansible_fqdn }}"
-          architecture: "{{ ansible_architecture }}"
-          processors: "{{ ansible_processor_nproc }}"
-          memory_mb: "{{ ansible_memtotal_mb }}"
-          filesystems: "{{ ansible_mounts | map(attribute='mount') | list }}"
+          hostname: "{{ ansible_facts['hostname'] }}"
+          fqdn: "{{ ansible_facts['fqdn'] }}"
+          architecture: "{{ ansible_facts['architecture'] }}"
+          processors: "{{ ansible_facts['processor_nproc'] }}"
+          memory_mb: "{{ ansible_facts['memtotal_mb'] }}"
+          filesystems: "{{ ansible_facts['mounts'] | map(attribute='mount') | list }}"

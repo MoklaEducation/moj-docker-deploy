@@ -3,10 +3,10 @@
   "$id": "https://mokla.example/schemas/platform.schema.json",
   "type": "object",
   "additionalProperties": false,
-  "required": ["environment_name", "connection", "host_fqdn", "host_address", "network", "host", "docker", "data_services", "backup", "k3s"],
+  "required": ["environment_name", "target_connection", "host_fqdn", "host_address", "network", "host", "docker", "data_services", "backup", "k3s"],
   "properties": {
     "environment_name": {"type": "string", "minLength": 1},
-    "connection": {
+    "target_connection": {
       "type": "object", "additionalProperties": false,
       "required": ["mode"],
       "properties": {"mode": {"type": "string", "enum": ["local", "ssh"]}}
@@ -23,7 +23,18 @@
         "additional_cidrs": {"type": "array", "items": {"type": "string"}}
       }
     },
-    "host": {"$ref": "#/$defs/non_empty_object"},
+    "host": {
+      "type": "object", "additionalProperties": true,
+      "required": ["os_distribution", "os_version", "storage_root", "minimum_cpu", "minimum_memory_mb", "minimum_root_free_gb"],
+      "properties": {
+        "os_distribution": {"type": "string", "minLength": 1},
+        "os_version": {"type": "string", "minLength": 1},
+        "storage_root": {"type": "string", "minLength": 1},
+        "minimum_cpu": {"type": "integer", "minimum": 1},
+        "minimum_memory_mb": {"type": "integer", "minimum": 1},
+        "minimum_root_free_gb": {"type": "number", "exclusiveMinimum": 0}
+      }
+    },
     "docker": {"$ref": "#/$defs/non_empty_object"},
     "data_services": {"$ref": "#/$defs/non_empty_object"},
     "backup": {"$ref": "#/$defs/non_empty_object"},

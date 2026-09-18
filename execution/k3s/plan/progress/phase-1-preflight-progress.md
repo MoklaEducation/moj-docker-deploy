@@ -1,6 +1,6 @@
 # Phase 1 Preflight Progress
 
-Status: in progress
+Status: local gate passing; hardening and coverage still in progress
 
 Last updated: 2026-09-18
 
@@ -22,8 +22,10 @@ operator command
   -> localhost
 ```
 
-The target remains one supported Ubuntu 24.04 `x86_64` machine with `systemd`. The
-single machine may eventually run Docker-managed MariaDB and Redis alongside a
+The target remains one explicitly selected Ubuntu `x86_64` machine with `systemd`. The
+current local environment declares Ubuntu 26.04; this is an explicit compatibility
+decision for this machine and must be revisited before deploying to a different target.
+A single machine may eventually run Docker-managed MariaDB and Redis alongside a
 single-server k3s installation.
 
 ## Operating Principles
@@ -91,6 +93,10 @@ execution/k3s/
     preflight.py                                # controller validation and report creation
     update_report.py                            # report update after Ansible execution
     schemas/platform.schema.json                # platform contract
+  operations/setup/
+    controller.sh                               # explicit controller check/install helper
+    controller_validate.py                      # standalone pinned dependency checker
+    controller-requirements.txt                 # pinned Python controller dependencies
 ```
 
 ### Public wrapper
@@ -162,7 +168,7 @@ schema = json.loads((root / "operations/validate/schemas/platform.schema.json").
 platform = yaml.safe_load((root / "environments/test/platform.yml").read_text())
 errors = list(Draft202012Validator(schema).iter_errors(platform))
 assert not errors, errors
-assert platform["connection"]["mode"] == "local"
+assert platform["target_connection"]["mode"] == "local"
 inventory = yaml.safe_load((root / "environments/test/inventory.yml").read_text())
 host = inventory["all"]["children"]["platform_host"]["hosts"]["localhost"]
 assert host["ansible_connection"] == "local"
@@ -192,8 +198,19 @@ Run the local preflight:
 ./execution/k3s/bootstrap.sh check --environment test
 ```
 
-The current test run is expected to fail closed until SOPS, age, and an operator-created
-`secrets.sops.yml` are available. The command must still write a report.
+The current test environment has verified SOPS/age tooling and an encrypted local
+`secrets.sops.yml`; the command passes the controller and local Ansible checks.
+
+Set up or verify the controller separately:
+
+```bash
+./execution/k3s/operations/setup/controller.sh check
+./execution/k3s/operations/setup/controller.sh install
+```
+
+`install` installs `age` through apt and the pinned Ansible collections. It does not
+download SOPS or alter Python dependencies automatically; those require an explicit,
+verified controller installation decision.
 
 ## Evidence
 
@@ -220,11 +237,8 @@ kubeconfigs are also covered by ignore rules.
 
 Phase 1 is not complete yet. The current implementation still needs:
 
-- real SOPS/age decryptability and required-key validation;
-- pinned Ansible collection installation/verification;
 - complete Phase 1 schema coverage for the full Phase 2 and Phase 3 contracts;
-- remote host facts for CPU, memory, disks, storage-root suitability, time, DNS, routes,
-  CIDR overlap, ports, conflicting services, and outbound HTTPS;
+- remote host facts for DNS, routes, CIDR overlap, hostname/address, and outbound HTTPS;
 - structured remote facts and check results in the final report rather than only the
   initial Ansible success/failure status;
 - negative fixtures for invalid schema, overlapping CIDRs, low disk/memory, unsupported
@@ -235,11 +249,11 @@ These gaps should be addressed before starting Phase 2 host mutation.
 
 ## Next Implementation Sequence
 
-1. Complete local Phase 1 controller checks and secret handling.
-2. Expand the local Ansible preflight checks and evidence collection.
-3. Add focused fixture tests and stable report assertions.
+1. Add structured host facts and individual Ansible check results to the JSON report.
+2. Add focused fixture tests and stable report assertions.
+3. Complete local DNS, route, CIDR, hostname/address, and outbound HTTPS checks.
 4. Prove two consecutive local checks produce equivalent check outcomes.
-5. Only after Phase 1 passes locally, implement Phase 2 check/apply behavior.
+5. Only after Phase 1 is complete locally, implement Phase 2 check/apply behavior.
 6. Add SSH as a separate connection mode without changing phase role ownership.
 
 ## Update Log
@@ -247,5 +261,9 @@ These gaps should be addressed before starting Phase 2 host mutation.
 | Date | Change | Validation |
 | --- | --- | --- |
 | 2026-09-18 | Established local-first execution, standalone Python validation scripts, explicit report updater, and localhost inventory. | Shell syntax, Python compilation, schema validation, Ansible inventory discovery, playbook syntax, and fail-closed wrapper run passed. |
+| 2026-09-18 | Added explicit Ubuntu 26.04 policy, verified age/SOPS tooling, encrypted local test secrets, required-key/decryptability checks, pinned collection verification, and expanded read-only host checks. | Controller validation passed with redacted evidence; public local preflight passed with 16 Ansible tasks and zero changes. |
+| 2026-09-18 | Re-ran the public local preflight and compared stable check outcomes. | Two consecutive runs produced 14 identical controller check outcomes, overall pass, zero Ansible changes, and no warnings. |
+| 2026-09-18 | Added a bounded retry for system time synchronization to tolerate chrony startup convergence. | The local preflight passed after the transient `NTPSynchronized=no` condition, with 16 tasks and zero changes. |
+| 2026-09-18 | Added explicit controller setup/check scripts and pinned Python controller requirements. | Standalone dependency validation and `controller.sh check` both passed. |
 
 Add one row for each meaningful implementation or validation milestone.
