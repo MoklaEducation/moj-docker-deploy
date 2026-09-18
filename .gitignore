@@ -1,0 +1,4 @@
+/execution/k3s/.evidence/
+/execution/k3s/**/secrets.sops.yml
+/execution/k3s/**/age-identity*
+/execution/k3s/**/kubeconfig*

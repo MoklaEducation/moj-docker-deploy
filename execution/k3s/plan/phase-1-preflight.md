@@ -45,7 +45,7 @@ Implement and test the first version against these defaults:
 | Architecture | `x86_64` / `amd64` |
 | Init system | `systemd` |
 | Automation | `ansible-core`, pinned in dependency metadata |
-| Connection | SSH with a non-root automation user and `sudo` |
+| Connection | Local Ansible execution initially; SSH is a later connection mode |
 | Python on target | Python 3 |
 | Initial topology | One host, one future k3s server |
 | Secret model | SOPS with age, unless replaced by an accepted decision |
@@ -67,12 +67,18 @@ execution/k3s/environments/<environment>/
 
 Commit sanitized examples for `test`; do not commit usable secrets.
 
-`inventory.yml` must identify exactly one host in a `platform_host` group and define:
+`inventory.yml` must identify exactly one host in a `platform_host` group. In the
+initial local mode, that host is `localhost` with `ansible_connection: local`. An SSH
+inventory may later define these connection-specific values:
 
 - inventory hostname;
 - SSH address and port;
 - SSH automation user;
 - Python interpreter path.
+
+The initial supported connection mode is `local`, using Ansible's local connection on
+the machine running the command. SSH-specific fields and checks are reserved for the
+later `ssh` mode; the phase roles must remain connection-agnostic.
 
 `platform.yml` must define, with no hidden defaults for network-sensitive values:
 
@@ -143,6 +149,8 @@ execution/k3s/
         templates/preflight-report.json.j2
   operations/
     validate/
+      preflight.py
+      update_report.py
       schemas/
         platform.schema.json
 ```

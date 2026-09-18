@@ -1,0 +1,39 @@
+---
+- name: Inspect the candidate host without changing it
+  hosts: platform_host
+  become: true
+  gather_facts: true
+  vars_files:
+    - "{{ platform_file }}"
+  tasks:
+    - name: Verify the supported operating system
+      ansible.builtin.assert:
+        that:
+          - ansible_distribution == 'Ubuntu'
+          - ansible_distribution_version is version('24.04', '==')
+        fail_msg: "Expected Ubuntu 24.04, found {{ ansible_distribution }} {{ ansible_distribution_version }}."
+
+    - name: Verify the supported architecture and init system
+      ansible.builtin.assert:
+        that:
+          - ansible_architecture in ['x86_64', 'amd64']
+          - ansible_service_mgr == 'systemd'
+          - ansible_python.version.major == 3
+        fail_msg: "Host does not meet the supported architecture, init, or Python contract."
+
+    - name: Verify configured host identity
+      ansible.builtin.assert:
+        that:
+          - host_fqdn is defined
+          - host_address is defined
+        fail_msg: "platform.yml must define host_fqdn and host_address."
+
+    - name: Record immutable remote facts
+      ansible.builtin.debug:
+        msg:
+          hostname: "{{ ansible_hostname }}"
+          fqdn: "{{ ansible_fqdn }}"
+          architecture: "{{ ansible_architecture }}"
+          processors: "{{ ansible_processor_nproc }}"
+          memory_mb: "{{ ansible_memtotal_mb }}"
+          filesystems: "{{ ansible_mounts | map(attribute='mount') | list }}"

@@ -1,0 +1,25 @@
+environment_name: test
+connection:
+  mode: local
+host_fqdn: localhost
+host_address: 127.0.0.1
+network:
+  administrative_cidrs: [127.0.0.0/8]
+  public_ingress_ports: [80, 443]
+  pod_cidr: 10.42.0.0/16
+  service_cidr: 10.43.0.0/16
+host:
+  timezone: Etc/UTC
+  automation_user: ubuntu
+docker:
+  apt_repository: https://download.docker.com/linux/ubuntu
+  engine_version: REPLACE_WITH_REVIEWED_VERSION
+data_services:
+  bind_address: 127.0.0.1
+  mariadb: {port: 3306}
+  redis: {port: 6379, data_policy: disposable}
+backup:
+  restic_repository: s3:https://backup.example.invalid/mokla-test
+  staging_path: /srv/mokla/backup-staging
+k3s:
+  version: REPLACE_WITH_REVIEWED_VERSION
