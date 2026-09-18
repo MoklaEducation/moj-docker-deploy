@@ -15,6 +15,10 @@ This blueprint follows the accepted boundaries in
 [k3s Runtime](../../docs/architecture/k3s-runtime.md). If this proposal changes an
 accepted platform decision, update `decisions.md` before implementation.
 
+See [Repeatable k3s Deployment Strategy](repeatable-deployment.md) for the operator
+entry point, responsibility-based layout, phased convergence, and application-ready
+handoff defined for this platform.
+
 This blueprint deliberately tightens delivery sequencing: Layer 4 observability, backup,
 and certificate automation remain independently owned and deployable, but their baseline
 capabilities are prerequisites for the first application deployment. Align the roadmap
