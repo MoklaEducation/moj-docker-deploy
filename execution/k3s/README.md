@@ -6,13 +6,19 @@ Status: proposed for agreement; no implementation is defined here.
 
 Define a small, reliable, and repeatable k3s platform that one person can build,
 operate, recover, and later extend with GitOps and CI/CD. The cluster is infrastructure
-onto which application services will be deployed independently. This document does not
-define DMOJ, Keycloak, or any other application workload.
+onto which application services will be deployed independently, but applications are not
+onboarded until the platform foundation has passed its repeatability and recovery gates.
+This document does not define DMOJ, Keycloak, or any other application workload.
 
 This blueprint follows the accepted boundaries in
 [Platform Decisions](../../docs/architecture/decisions.md) and the direction in
 [k3s Runtime](../../docs/architecture/k3s-runtime.md). If this proposal changes an
 accepted platform decision, update `decisions.md` before implementation.
+
+This blueprint deliberately tightens delivery sequencing: Layer 4 observability, backup,
+and certificate automation remain independently owned and deployable, but their baseline
+capabilities are prerequisites for the first application deployment. Align the roadmap
+and k3s runtime delivery sequence with this gate during decision closure.
 
 ## Outcomes
 
@@ -37,6 +43,8 @@ The first implementation must provide:
 
 - Host prerequisites and baseline operating-system configuration.
 - Installation and lifecycle management of one k3s server.
+- Host-level placement, isolation, backup integration, and recovery validation for the
+  MariaDB and Redis services that initially run outside k3s on the same machine.
 - Kubernetes API access, node identity, networking, DNS, ingress, and local storage.
 - Platform namespaces, RBAC, network-policy defaults, and secret-delivery boundaries.
 - `cert-manager` and certificate issuer configuration.
@@ -47,6 +55,7 @@ The first implementation must provide:
 ### Out of scope
 
 - Definitions, configuration, or rollout rules for application services.
+- Application-specific database schemas, users, migrations, and data lifecycle rules.
 - Moving MariaDB or Redis into Kubernetes.
 - A highly available control plane in the initial implementation.
 - Distributed storage or automatic failover across machines.
@@ -116,9 +125,16 @@ flowchart TB
 | Cluster DNS | Bundled CoreDNS |
 | Persistent volumes | Bundled local-path provisioner |
 | Service load balancer | Bundled ServiceLB unless the network design requires another choice |
-| Application databases | External to Kubernetes |
+| Application databases | On the same host initially, but external to Kubernetes |
 | Workload artifacts | Immutable OCI images deployed by digest |
 | Availability model | Planned downtime with tested rebuild and restore |
+
+Keeping MariaDB and Redis on the k3s host is an intentional simplicity tradeoff, not a
+separate failure domain. Loss of that host can affect the cluster and application data at
+the same time. Database files must use defined host paths outside Kubernetes-managed
+storage, and their independent, encrypted off-host backups and clean-host restore tests
+are required before application deployment. Moving databases to separate infrastructure
+is a later initiative that must preserve the application connection contract.
 
 ## Automation Contract
 
@@ -149,11 +165,14 @@ layout is an implementation decision, but the responsibilities must remain separ
 | Public desired state | k3s version, chart versions, namespaces, resource budgets | Git |
 | Environment inventory | node address, public names, storage paths | Git when non-sensitive |
 | Secrets | tokens, passwords, private keys, issuer credentials | Encrypted secret store, never plaintext Git |
-| Runtime state | SQLite database, persistent volumes, generated certificates | Host storage plus off-host backup |
+| Runtime state | SQLite database, persistent volumes, generated certificates, external database files | Defined host storage plus off-host backup |
 | Evidence | validation and restore-test results | CI artifacts or operational records |
 
-All automation must support a check/render mode that does not mutate the host or cluster.
-Logs must redact secret values.
+Provisioning and configuration automation must support a check/render mode that does not
+mutate the host or cluster. Inherently stateful lifecycle operations such as restore,
+upgrade, rollback, and uninstall must instead provide explicit preflight checks, show the
+target and intended action, and require confirmation before destructive changes. Logs
+must redact secret values.
 
 ## Platform Requirements
 
@@ -193,8 +212,12 @@ Logs must redact secret values.
 - Use `cert-manager` with a dedicated ClusterIssuer or Issuer per trust boundary.
 - Use ACME HTTP-01 for suitable public names or DNS-01 where ingress cannot be public.
 - Keep internal services private; do not expose them only to obtain certificates.
-- Alert before certificate expiration and test automatic renewal in a non-production
-  issuer environment before enabling production issuance.
+- Alert before certificate expiration. Automate and test staging certificate issuance
+  before application deployment. Also test automatic renewal where the issuer and test
+  window make that practical; if renewal timing would block the initial platform gate,
+  record the exception, prove the renewal configuration and alert path, and schedule a
+  forced or naturally occurring renewal test before relying on the certificate in
+  production.
 - Back up issuer configuration and account references; private keys remain secret data.
 
 ### Storage and data protection
@@ -209,8 +232,10 @@ Logs must redact secret values.
   freshness and failure.
 - A restore is not considered supported until it has been rehearsed onto a clean host and
   the restored platform passes validation.
-- External databases and Redis keep their own backup and restore procedures outside this
-  cluster blueprint; cluster recovery must preserve their connection contract.
+- MariaDB and Redis retain service-specific backup and restore procedures, while this
+  blueprint owns their integration into the host-level backup schedule and clean-host
+  recovery rehearsal. Application plans own schemas, migrations, credentials, and data
+  validation; cluster recovery must preserve their connection contract.
 
 ### Observability
 
@@ -264,7 +289,7 @@ Exact values require agreement before implementation. The first release must rec
 | --- | --- |
 | Cluster rebuild time objective | 4 hours from a prepared clean host |
 | Cluster configuration recovery point | Last successful daily backup |
-| Platform persistent-data recovery point | 24 hours maximum |
+| Platform and same-host database recovery point | 24 hours maximum |
 | Backup schedule | Daily, plus before every upgrade or production platform change |
 | Restore rehearsal | Quarterly and before first production cutover |
 | Planned maintenance | Allowed with advance notice |
@@ -311,26 +336,30 @@ These are architecture gates, not implementation instructions:
    non-mutating preflight/check interfaces.
 3. **Base cluster:** automate host baseline and pinned single-server k3s installation.
 4. **Platform services:** add networking policies, certificate management, observability,
-   alerting, and backup in independently reversible changes.
-5. **Recovery proof:** rebuild a clean test host and restore platform state using only the
-   repository, documented secret inputs, and backups.
-6. **Application-ready gate:** publish the cluster interface and acceptance evidence so
-   application services can be designed separately.
+  alerting, and backup in independently reversible changes.
+5. **Recovery proof:** rebuild a clean test host and restore platform state and same-host
+  external databases using only the repository, documented secret inputs, and off-host
+  backups.
+6. **Application-ready gate:** repeat the complete build on a clean test host, publish the
+  cluster interface and acceptance evidence, and only then permit application manifests
+  to be applied.
 
 ## Application-Ready Acceptance Criteria
 
 The cluster is ready to receive application definitions only when all of the following are
-true:
+true. This is intentionally a platform-first gate: applications are used for neither
+bootstrapping nor proving the platform foundation.
 
 - A clean supported host can be provisioned by one documented command or workflow.
 - Re-running automation is idempotent and reports no unexplained drift.
 - Kubernetes API, node, CoreDNS, storage provisioning, ingress, and network-policy tests
   pass.
-- A disposable test hostname obtains and renews a certificate through `cert-manager`.
+- A disposable test hostname obtains a certificate through `cert-manager`; renewal is
+  tested or has the bounded, recorded exception defined in the certificate requirements.
 - Prometheus receives platform targets, logs are queryable in Loki, Grafana dashboards
   load, and a controlled alert reaches the operator.
-- Backup freshness is monitored and a clean-host restore rehearsal meets the agreed RTO
-  and RPO.
+- Backup freshness is monitored and a clean-host restore rehearsal for cluster state,
+  required volumes, and same-host external databases meets the agreed RTO and RPO.
 - Public and administrative exposure matches the port and access inventory.
 - Resource requests, limits, quotas, retention, and remaining application capacity are
   documented from measured usage.
@@ -341,8 +370,8 @@ true:
 ## Open Decisions Before Implementation
 
 1. Target Linux distribution/version and minimum server CPU, memory, and storage.
-2. Physical, home-hosted, VPS, or cloud placement and the resulting public IP/firewall
-   model.
+2. Physical, home-hosted, VPS, or cloud placement of the initial combined k3s/database
+  host and the resulting public IP/firewall model.
 3. Public and private DNS zones and whether ACME uses HTTP-01 or DNS-01.
 4. Administrative access path: restricted public IPs, WireGuard/Tailscale, or later
    Headscale.
