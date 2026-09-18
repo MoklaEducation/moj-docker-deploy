@@ -13,6 +13,10 @@ The target platform is defined in [k3s Cluster Blueprint](README.md). This docum
 describes deployment responsibilities, sequencing, and the contract between host
 automation and Kubernetes configuration. It does not define application workloads.
 
+Implementation discoveries and failure behavior are governed by
+[Evolution and Failure Management](evolution-and-failure-management.md). Use that guide
+to revise these plans without losing ownership boundaries, evidence, or repeatability.
+
 ## Deployment Model
 
 ```text
