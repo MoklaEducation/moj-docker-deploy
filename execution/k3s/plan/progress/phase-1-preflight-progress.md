@@ -92,6 +92,7 @@ execution/k3s/
   operations/validate/
     preflight.py                                # controller validation and report creation
     update_report.py                            # report update after Ansible execution
+    compare_reports.py                          # stable repeatability comparison
     schemas/platform.schema.json                # platform contract
   operations/setup/
     controller.sh                               # explicit controller check/install helper
@@ -135,6 +136,15 @@ executed playbook:
 ./execution/k3s/operations/validate/update_report.py \
   --report execution/k3s/.evidence/test-manual/phase-1-preflight.json \
   --ansible-status 0
+```
+
+Compare two saved reports while ignoring timestamps, repository metadata, and
+transient evidence:
+
+```bash
+./execution/k3s/operations/validate/compare_reports.py \
+  --first execution/k3s/.evidence/test-first/phase-1-preflight.json \
+  --second execution/k3s/.evidence/test-second/phase-1-preflight.json
 ```
 
 ## Current Validation Commands
@@ -239,12 +249,11 @@ kubeconfigs are also covered by ignore rules.
 Phase 1 is not complete yet. The current implementation still needs:
 
 - complete Phase 1 schema coverage for the full Phase 2 and Phase 3 contracts;
-- remote host facts for DNS, routes, hostname/address, and outbound HTTPS;
 - structured Ansible facts and individual host check results in the final report rather
   than only the initial Ansible success/failure status;
 - negative fixtures for invalid schema, overlapping CIDRs, low disk/memory, unsupported
   OS/architecture, and secret redaction;
-- disposable-machine validation and a second-run repeatability check.
+- disposable-machine validation; repeated local runs are the current acceptance path.
 
 These gaps should be addressed before starting Phase 2 host mutation.
 
@@ -252,10 +261,8 @@ These gaps should be addressed before starting Phase 2 host mutation.
 
 1. Add structured Ansible facts and individual host check results to the JSON report.
 2. Add focused fixture tests and stable report assertions.
-3. Complete local DNS, route, CIDR, hostname/address, and outbound HTTPS checks.
-4. Prove two consecutive local checks produce equivalent check outcomes.
-5. Only after Phase 1 is complete locally, implement Phase 2 check/apply behavior.
-6. Add SSH as a separate connection mode without changing phase role ownership.
+3. Only after Phase 1 is complete locally, implement Phase 2 check/apply behavior.
+4. Add SSH as a separate connection mode without changing phase role ownership.
 
 ## Update Log
 
@@ -267,5 +274,7 @@ These gaps should be addressed before starting Phase 2 host mutation.
 | 2026-09-18 | Added a bounded retry for system time synchronization to tolerate chrony startup convergence. | The local preflight passed after the transient `NTPSynchronized=no` condition, with 16 tasks and zero changes. |
 | 2026-09-18 | Added local DNS, HTTPS, address-assignment, and CIDR-overlap checks plus structured local network facts. | Controller and public local preflight passed with all network checks passing and zero target changes. |
 | 2026-09-18 | Added explicit controller setup/check scripts and pinned Python controller requirements. | Standalone dependency validation and `controller.sh check` both passed. |
+| 2026-09-18 | Added route/hostname evidence and a standalone stable-report comparison tool. | Public local preflight passed; repeatability can be checked without comparing timestamps or transient evidence. |
+| 2026-09-18 | Ran the public local preflight twice and compared both saved reports. | 23 stable check outcomes matched; both runs passed with zero Ansible changes. |
 
 Add one row for each meaningful implementation or validation milestone.

@@ -184,6 +184,13 @@ def local_ipv4_networks():
     return networks, ""
 
 
+def local_ipv4_routes():
+    result = subprocess.run(["ip", "-4", "route", "show"], capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        return [], "ip could not list local IPv4 routes"
+    return [line.strip() for line in result.stdout.splitlines() if line.strip()], ""
+
+
 def check_network(platform, report):
     network = platform.get("network", {}) if isinstance(platform, dict) else {}
     try:
@@ -212,6 +219,25 @@ def check_network(platform, report):
         "pod_cidr": str(pod_network),
         "service_cidr": str(service_network),
     }
+    routes, route_error = local_ipv4_routes()
+    if route_error:
+        report.add("network.routes.readable", "fail", route_error, "Install iproute2 and ensure local route facts are readable.")
+    else:
+        report.facts["network"]["local_ipv4_routes"] = routes
+        report.add("network.routes.readable", "pass", f"found {len(routes)} local IPv4 routes", "")
+        if network.get("outbound_https_endpoints") and not any(route.split()[0] == "default" for route in routes):
+            report.add("network.default_route.present", "fail", "no IPv4 default route is configured", "Provide a route for the configured outbound HTTPS endpoints.")
+        else:
+            report.add("network.default_route.present", "pass", "default route requirement satisfied", "")
+
+    hostname = socket.gethostname()
+    fqdn = socket.getfqdn()
+    report.facts["host"] = {"hostname": hostname, "fqdn": fqdn}
+    configured_fqdn = platform.get("host_fqdn")
+    if configured_fqdn in ("localhost", hostname, fqdn):
+        report.add("host.hostname.consistent", "pass", f"configured {configured_fqdn}, detected {hostname}", "")
+    else:
+        report.add("host.hostname.consistent", "warning", f"configured {configured_fqdn}, detected {hostname}", "Review the hostname mismatch; Phase 1 does not change host identity.")
     if any(interface.ip == host_address for interface in local_interfaces):
         report.add("host.address.assigned", "pass", str(host_address), "")
     else:
