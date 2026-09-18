@@ -8,6 +8,8 @@ network:
   public_ingress_ports: [80, 443]
   pod_cidr: 10.42.0.0/16
   service_cidr: 10.43.0.0/16
+  dns_names: [localhost, download.docker.com]
+  outbound_https_endpoints: [https://download.docker.com/linux/ubuntu/]
 host:
   os_distribution: Ubuntu
   os_version: "26.04"

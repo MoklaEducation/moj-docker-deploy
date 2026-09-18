@@ -3,10 +3,14 @@
 
 import argparse
 import datetime as dt
+import ipaddress
 import json
 import pathlib
+import socket
 import subprocess
 import sys
+import urllib.error
+import urllib.request
 
 import yaml
 from jsonschema import Draft202012Validator
@@ -26,6 +30,7 @@ class Report:
     def __init__(self):
         self.started = dt.datetime.now(dt.timezone.utc)
         self.checks = []
+        self.facts = {}
 
     def add(self, check_id, status, evidence, remediation):
         self.checks.append({"id": check_id, "status": status, "evidence": evidence, "remediation": remediation})
@@ -41,6 +46,7 @@ class Report:
             "repository": repository,
             "environment": args.environment,
             "connection_mode": connection_mode,
+            "facts": self.facts,
             "checks": self.checks,
             "overall_status": "fail" if failed else "pass",
             "remote_checks": "not_implemented",
@@ -163,6 +169,91 @@ def check_secrets(environment_dir, report):
         report.add("secrets.required_keys", "pass", "all required secret keys are present", "")
 
 
+def local_ipv4_networks():
+    result = subprocess.run(["ip", "-4", "-o", "addr", "show"], capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        return [], "ip could not list local IPv4 addresses"
+    networks = []
+    for line in result.stdout.splitlines():
+        fields = line.split()
+        try:
+            address = ipaddress.ip_interface(fields[3])
+            networks.append(address)
+        except (IndexError, ValueError):
+            continue
+    return networks, ""
+
+
+def check_network(platform, report):
+    network = platform.get("network", {}) if isinstance(platform, dict) else {}
+    try:
+        host_address = ipaddress.ip_address(platform["host_address"])
+        pod_network = ipaddress.ip_network(network["pod_cidr"])
+        service_network = ipaddress.ip_network(network["service_cidr"])
+        administrative_networks = [ipaddress.ip_network(value) for value in network["administrative_cidrs"]]
+        additional_networks = [ipaddress.ip_network(value) for value in network.get("additional_cidrs", [])]
+    except (KeyError, ValueError) as exc:
+        report.add("network.cidr.valid", "fail", f"invalid network configuration: {type(exc).__name__}", "Correct the configured IPv4 addresses and CIDRs.")
+        return
+
+    if pod_network.overlaps(service_network):
+        report.add("network.cidr.no_overlap", "fail", "pod and service CIDRs overlap", "Choose non-overlapping pod and service CIDRs.")
+    else:
+        report.add("network.cidr.no_overlap", "pass", "pod and service CIDRs do not overlap", "")
+
+    local_interfaces, error = local_ipv4_networks()
+    if error:
+        report.add("network.interfaces.readable", "fail", error, "Install iproute2 and ensure local interface facts are readable.")
+        return
+    report.add("network.interfaces.readable", "pass", f"found {len(local_interfaces)} local IPv4 interfaces", "")
+    report.facts["network"] = {
+        "local_ipv4_interfaces": [str(interface) for interface in local_interfaces],
+        "host_address": str(host_address),
+        "pod_cidr": str(pod_network),
+        "service_cidr": str(service_network),
+    }
+    if any(interface.ip == host_address for interface in local_interfaces):
+        report.add("host.address.assigned", "pass", str(host_address), "")
+    else:
+        report.add("host.address.assigned", "fail", f"{host_address} is not assigned locally", "Set host_address to an address assigned to this machine.")
+
+    conflicts = []
+    for interface in local_interfaces:
+        if interface.network.overlaps(pod_network) or interface.network.overlaps(service_network):
+            conflicts.append(str(interface.network))
+    for configured in administrative_networks + additional_networks:
+        if configured.overlaps(pod_network) or configured.overlaps(service_network):
+            conflicts.append(str(configured))
+    if conflicts:
+        report.add("network.cidr.no_local_overlap", "fail", ", ".join(sorted(set(conflicts))), "Choose pod and service CIDRs that do not overlap local or configured networks.")
+    else:
+        report.add("network.cidr.no_local_overlap", "pass", "pod and service CIDRs do not overlap configured local networks", "")
+
+    dns_failures = []
+    for name in network.get("dns_names", []):
+        try:
+            socket.getaddrinfo(name, None)
+        except socket.gaierror:
+            dns_failures.append(name)
+    if dns_failures:
+        report.add("network.dns.resolves", "fail", ", ".join(dns_failures), "Correct DNS or remove unreachable names from the environment contract.")
+    else:
+        report.add("network.dns.resolves", "pass", f"resolved {len(network.get('dns_names', []))} configured names", "")
+
+    https_failures = []
+    for endpoint in network.get("outbound_https_endpoints", []):
+        try:
+            with urllib.request.urlopen(endpoint, timeout=10) as response:
+                if response.status < 200 or response.status >= 400:
+                    https_failures.append(f"{endpoint} ({response.status})")
+        except (urllib.error.URLError, TimeoutError, ValueError) as exc:
+            https_failures.append(f"{endpoint} ({type(exc).__name__})")
+    if https_failures:
+        report.add("network.https.reachable", "fail", "; ".join(https_failures), "Verify outbound HTTPS access and the configured endpoint list.")
+    else:
+        report.add("network.https.reachable", "pass", f"reached {len(network.get('outbound_https_endpoints', []))} configured endpoints", "")
+
+
 def repository_state(repository_path):
     try:
         commit = subprocess.run(["git", "-C", str(repository_path), "rev-parse", "HEAD"], capture_output=True, text=True, check=False).stdout.strip() or None
@@ -200,6 +291,8 @@ def main():
         report.add("target_connection.mode.valid", "fail", "target_connection.mode must be local or ssh", "Set target_connection.mode to local for the current single-machine workflow.")
     if inventory is not None:
         check_inventory(inventory, report)
+    if platform is not None:
+        check_network(platform, report)
     check_controller_commands(connection_mode, report)
     check_collections(args.environment_dir.parent.parent / "host" / "requirements.yml", report)
 
