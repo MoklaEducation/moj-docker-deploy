@@ -190,6 +190,7 @@ markers. It found none. Two final reports had identical stable check IDs and sta
 | First mutation run stopped after `ok=74 changed=21 failed=1` | A colon-bearing UFW assertion was parsed as a non-string conditional. | The expression was quoted; the immediate repair run reached `ok=73 changed=1 failed=0`. |
 | Evidence still failed after host convergence | Ubuntu cloud-init set `PasswordAuthentication yes` in an earlier SSH drop-in; OpenSSH retained the first value. | The managed policy moved to `00-mokla-baseline.conf`, the obsolete file was removed, the complete config is validated with `sshd -t`, and SSH is reloaded only after validation. The corrective apply passed with `ok=76 changed=3 failed=0`. |
 | A stricter idempotence audit stopped at `ok=78 changed=0 failed=1` | The evidence assertion expected inactive UFW wording for the routed default. | The assertion now matches active UFW's `deny (routed)` policy. The rerun passed with `ok=80 changed=0 failed=0`. |
+| A later check-mode run reported `changed=1` on a converged host | The Docker repository metadata refresh reported transient APT cache activity as managed-state drift. | The refresh remains enabled but no longer contributes to Ansible change accounting. The full validation suite and Phase 2 check passed with `ok=76 changed=0 failed=0`. |
 | Probing the dormant `lxc` launcher installed the LXD snap | The host command was an on-demand wrapper rather than an already installed VM runtime. | No LXD instances existed; the newly installed LXD snap was removed and its absence was verified. |
 
 ## Current Gaps
@@ -220,3 +221,4 @@ or application workloads as part of this phase.
 | 2026-09-19 | Added safety-first check/apply dispatch, the baseline role, validated templates, rollback behavior, and redacted evidence. | Python/shell compilation, inventory discovery, and both playbook syntax checks passed. |
 | 2026-09-19 | Resolved access, Docker migration, check-mode probe, SSH precedence, and evidence assertion failures encountered on the VM. | Successful convergence reached `ok=76 changed=3`; no reboot was required. |
 | 2026-09-19 | Proved idempotence and final clean check mode with strengthened acceptance evidence. | Apply reached `ok=80 changed=0`; two final checks each reached `ok=76 changed=0`; Phase 1 independently remained `ok=16 changed=0`. |
+| 2026-09-19 | Excluded transient Docker repository metadata refreshes from managed-state change accounting. | All 12 tests and documented static checks passed; Phase 2 check reached `ok=76 changed=0 failed=0`. |
