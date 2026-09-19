@@ -2,7 +2,7 @@ environment_name: test
 target_connection:
   mode: local
 host_fqdn: localhost
-host_address: 127.0.0.1
+host_address: 192.168.1.151
 network:
   administrative_cidrs: [192.168.1.0/24]
   public_ingress_ports: [80, 443]
@@ -37,7 +37,7 @@ docker:
   log_max_size: 20m
   log_max_files: 5
 data_services:
-  bind_address: 127.0.0.1
+  bind_address: 192.168.1.151
   allowed_client_cidrs: [10.42.0.0/16, 192.168.1.0/24]
   tls:
     enabled: true
@@ -45,11 +45,11 @@ data_services:
     server_certificate_secret_key: data_services_tls_certificate
     server_private_key_secret_key: data_services_tls_private_key
     ca_certificate_secret_key: data_services_ca_certificate
-    renewal_owner: REPLACE_WITH_CERTIFICATE_RENEWAL_OWNER
+    renewal_owner: test-controller-pki-script
   mariadb:
-    image: REPLACE_WITH_REVIEWED_MARIADB_TAG_AND_DIGEST
-    compatibility_rationale: REPLACE_WITH_COMPATIBILITY_RATIONALE
-    image_scan: {scanner: REPLACE_WITH_SCANNER, scanned_at: "2026-09-19", findings: REPLACE_WITH_FINDINGS, approved_by: REPLACE_WITH_APPROVER}
+    image: docker.io/library/mariadb:11.8.6@sha256:df764e5c6d6d3fcf4a6c298f9ab52d4e783d34f6dc0347da91933ad7f5f6ebb6
+    compatibility_rationale: MariaDB 11.8 LTS official linux/amd64 image selected for the initial test platform
+    image_scan: {scanner: Trivy 0.66.0, scanned_at: "2026-09-19", findings: "Test acceptance: 308 total; 1 critical and 25 high, all 26 fixable", approved_by: test-environment-owner}
     port: 3306
     character_set: utf8mb4
     collation: utf8mb4_unicode_ci
@@ -60,9 +60,9 @@ data_services:
     memory_limit: 1G
     cpus: 1.0
   redis:
-    image: REPLACE_WITH_REVIEWED_REDIS_TAG_AND_DIGEST
-    compatibility_rationale: REPLACE_WITH_COMPATIBILITY_RATIONALE
-    image_scan: {scanner: REPLACE_WITH_SCANNER, scanned_at: "2026-09-19", findings: REPLACE_WITH_FINDINGS, approved_by: REPLACE_WITH_APPROVER}
+    image: docker.io/library/redis:8.2.4-alpine@sha256:9189e09a0da398da80a6525d91eecaac3739eb3503e8c5f15792b7a5457022c0
+    compatibility_rationale: Redis 8.2 Alpine official linux/amd64 image minimizes the package surface for disposable cache and queue use in test
+    image_scan: {scanner: Trivy 0.66.0, scanned_at: "2026-09-19", findings: "Test acceptance: 78 total; 2 critical and 21 high, all 23 high or critical fixable", approved_by: test-environment-owner}
     port: 6379
     authentication_enabled: true
     data_policy: disposable
@@ -74,10 +74,10 @@ data_services:
     memory_limit: 384M
     cpus: 0.5
 backup:
-  restic_repository: s3:https://backup.example.invalid/mokla-test
-  repository_credential_secret_keys:
-    - restic_aws_access_key_id
-    - restic_aws_secret_access_key
+  repository_mode: local-development
+  local_repository_risk_accepted: true
+  restic_repository: /srv/mokla/restic-repository
+  repository_credential_secret_keys: []
   staging_path: /srv/mokla/backup-staging
   schedule: "*-*-* 03:15:00 UTC"
   randomized_delay_seconds: 900

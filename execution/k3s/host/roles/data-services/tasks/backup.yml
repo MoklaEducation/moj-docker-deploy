@@ -33,6 +33,45 @@
   when: not ansible_check_mode
   no_log: true
 
+- name: Inspect local development restic repository contents
+  ansible.builtin.command:
+    argv: [find, "{{ backup.restic_repository }}", -mindepth, "1", -maxdepth, "1", -print, -quit]
+  register: data_services_local_restic_contents
+  check_mode: false
+  changed_when: false
+  when:
+    - not ansible_check_mode
+    - backup.repository_mode == 'local-development'
+
+- name: Inspect local development restic repository configuration
+  ansible.builtin.stat:
+    path: "{{ backup.restic_repository }}/config"
+  register: data_services_local_restic_config
+  when:
+    - not ansible_check_mode
+    - backup.repository_mode == 'local-development'
+
+- name: Refuse adoption of an unrecognized local restic repository
+  ansible.builtin.assert:
+    that:
+      - data_services_local_restic_contents.stdout | trim == '' or data_services_local_restic_config.stat.isreg | default(false)
+    fail_msg: The local development restic path is non-empty and is not an initialized restic repository.
+  when:
+    - not ansible_check_mode
+    - backup.repository_mode == 'local-development'
+
+- name: Initialize the local development restic repository
+  ansible.builtin.command:
+    argv: [restic, init]
+  environment:
+    RESTIC_REPOSITORY: "{{ backup.restic_repository }}"
+    RESTIC_PASSWORD_FILE: "{{ data_services_backup_secret_root }}/restic_password"
+  no_log: true
+  when:
+    - not ansible_check_mode
+    - backup.repository_mode == 'local-development'
+    - not data_services_local_restic_config.stat.exists
+
 - name: Install backup systemd units
   ansible.builtin.template:
     src: "{{ item.src }}"

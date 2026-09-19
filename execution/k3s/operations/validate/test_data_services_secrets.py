@@ -26,9 +26,11 @@ class DataServicesSecretsTests(unittest.TestCase):
         self.assertEqual([], MODULE.validate_values(PLATFORM, expected_values(PLATFORM)))
 
     def test_provider_specific_keys_are_required(self):
-        values = expected_values(PLATFORM)
-        del values[PLATFORM["backup"]["repository_credential_secret_keys"][0]]
-        errors = MODULE.validate_values(PLATFORM, values)
+        platform = copy.deepcopy(PLATFORM)
+        platform["backup"]["repository_credential_secret_keys"] = ["restic_aws_access_key_id"]
+        values = expected_values(platform)
+        del values["restic_aws_access_key_id"]
+        errors = MODULE.validate_values(platform, values)
         self.assertIn("data_services.secrets.required_keys", {check_id for check_id, _ in errors})
 
     def test_redis_password_is_conditional_on_authentication(self):

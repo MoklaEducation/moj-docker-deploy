@@ -74,6 +74,7 @@
   ansible.builtin.assert:
     that:
       - not data_services_reboot_required.stat.exists
+      - data_services.bind_address in ansible_facts['all_ipv4_addresses']
       - "'mariadb-server' not in ansible_facts.packages"
       - "'mysql-server' not in ansible_facts.packages"
       - "'redis-server' not in ansible_facts.packages"
@@ -82,4 +83,4 @@
       - data_services_primary_paths.results | selectattr('stat.exists') | rejectattr('stat.isdir') | list | length == 0
       - data_services_primary_paths.results | selectattr('stat.exists') | selectattr('stat.islnk') | list | length == 0
       - data_services_primary_contents.results | default([]) | selectattr('stdout', 'defined') | selectattr('stdout') | list | length == 0 or data_services_primary_markers.results | selectattr('stat.exists') | list | length == 2
-    fail_msg: Existing native services, unmanaged containers, pending reboot, or unmarked data require explicit operator disposition before Phase 3.
+    fail_msg: The private bind address must be assigned to this host, and existing native services, unmanaged containers, pending reboot, or unmarked data require explicit operator disposition before Phase 3.

@@ -1,0 +1,171 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+K3S_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+VENV="$K3S_DIR/.controller-venv"
+[[ -x "$VENV/bin/python3" ]] && export PATH="$VENV/bin:$PATH"
+
+usage() {
+  cat <<'EOF'
+Usage: generate-test-data-services --environment NAME [--days DAYS] [--force] [--update-sops|--initialize-sops]
+
+Generates a test-only CA and a shared MariaDB/Redis server certificate beneath the
+selected environment's ignored .generated/data-services-tls directory. --update-sops
+imports the server certificate, server private key, and CA certificate into the
+existing encrypted secrets.sops.yml. The CA private key remains controller-side.
+--initialize-sops creates a new encrypted test secret document with generated passwords
+and requires SOPS_AGE_KEY_FILE. It refuses to replace a non-empty secrets file.
+EOF
+}
+
+environment=""
+days=90
+force=false
+update_sops=false
+initialize_sops=false
+while (($# > 0)); do
+  case "$1" in
+    --environment) environment="${2:-}"; shift 2 ;;
+    --days) days="${2:-}"; shift 2 ;;
+    --force) force=true; shift ;;
+    --update-sops) update_sops=true; shift ;;
+    --initialize-sops) initialize_sops=true; update_sops=true; shift ;;
+    --help|-h) usage; exit 0 ;;
+    *) echo "error: unknown argument: $1" >&2; usage >&2; exit 2 ;;
+  esac
+done
+
+[[ -n "$environment" && "$environment" =~ ^[a-zA-Z0-9._-]+$ ]] || { echo "error: --environment is required" >&2; exit 2; }
+[[ "$days" =~ ^[1-9][0-9]*$ ]] || { echo "error: --days must be a positive integer" >&2; exit 2; }
+[[ "$EUID" -ne 0 ]] || { echo "error: run as the non-root controller user" >&2; exit 1; }
+for command in python3 openssl; do
+  command -v "$command" >/dev/null || { echo "error: $command is required" >&2; exit 1; }
+done
+
+environment_dir="$K3S_DIR/environments/$environment"
+platform="$environment_dir/platform.yml"
+secrets="$environment_dir/secrets.sops.yml"
+[[ -f "$platform" ]] || { echo "error: platform file not found: $platform" >&2; exit 1; }
+
+mapfile -t settings < <(python3 - "$platform" <<'PY'
+import pathlib
+import sys
+import yaml
+
+platform = yaml.safe_load(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+tls = platform["data_services"]["tls"]
+for value in (
+    platform["data_services"]["bind_address"],
+    platform["host_fqdn"],
+    tls["server_certificate_secret_key"],
+    tls["server_private_key_secret_key"],
+    tls["ca_certificate_secret_key"],
+):
+    print(value)
+PY
+)
+[[ "${#settings[@]}" -eq 5 ]] || { echo "error: platform TLS configuration is incomplete" >&2; exit 1; }
+bind_address="${settings[0]}"
+host_fqdn="${settings[1]}"
+certificate_key="${settings[2]}"
+private_key_key="${settings[3]}"
+ca_certificate_key="${settings[4]}"
+
+output_dir="$environment_dir/.generated/data-services-tls"
+if [[ -e "$output_dir" && "$force" != true ]]; then
+  echo "error: $output_dir already exists; use --force to rotate the test PKI" >&2
+  exit 1
+fi
+mkdir -p "$environment_dir/.generated"
+chmod 0700 "$environment_dir/.generated"
+certificate_work="$(mktemp -d "$environment_dir/.generated/.data-services-tls.XXXXXXXX")"
+secret_work=""
+cleanup() {
+  rm -rf -- "$certificate_work"
+  [[ -z "$secret_work" ]] || rm -rf -- "$secret_work"
+}
+trap cleanup EXIT
+chmod 0700 "$certificate_work"
+
+openssl req -x509 -newkey rsa:3072 -sha256 -nodes -days "$days" \
+  -subj "/CN=mokla-test-data-services-ca" \
+  -keyout "$certificate_work/ca.key" -out "$certificate_work/ca.crt" >/dev/null 2>&1
+openssl req -new -newkey rsa:3072 -sha256 -nodes \
+  -subj "/CN=$host_fqdn" \
+  -keyout "$certificate_work/server.key" -out "$certificate_work/server.csr" >/dev/null 2>&1
+cat >"$certificate_work/server.ext" <<EOF
+basicConstraints=critical,CA:FALSE
+keyUsage=critical,digitalSignature,keyEncipherment
+extendedKeyUsage=serverAuth
+subjectAltName=IP:$bind_address,DNS:$host_fqdn
+EOF
+openssl x509 -req -sha256 -days "$days" \
+  -in "$certificate_work/server.csr" -CA "$certificate_work/ca.crt" -CAkey "$certificate_work/ca.key" \
+  -CAcreateserial -extfile "$certificate_work/server.ext" -out "$certificate_work/server.crt" >/dev/null 2>&1
+rm -f "$certificate_work/server.csr" "$certificate_work/server.ext" "$certificate_work/ca.srl"
+chmod 0600 "$certificate_work/ca.key" "$certificate_work/server.key" "$certificate_work/ca.crt" "$certificate_work/server.crt"
+openssl verify -CAfile "$certificate_work/ca.crt" "$certificate_work/server.crt" >/dev/null
+openssl x509 -in "$certificate_work/server.crt" -noout -checkip "$bind_address" >/dev/null
+
+if [[ "$update_sops" == true ]]; then
+  for command in age-keygen jq sops; do
+    command -v "$command" >/dev/null || { echo "error: $command is required for --update-sops" >&2; exit 1; }
+  done
+  if [[ "$initialize_sops" == true ]]; then
+    [[ ! -s "$secrets" ]] || { echo "error: --initialize-sops refuses to replace a non-empty secrets file" >&2; exit 1; }
+    [[ -n "${SOPS_AGE_KEY_FILE:-}" && -r "$SOPS_AGE_KEY_FILE" ]] || { echo "error: SOPS_AGE_KEY_FILE must identify a readable age identity" >&2; exit 1; }
+    secret_work="$(mktemp -d "$environment_dir/.generated/.secrets.XXXXXXXX")"
+    openssl rand -base64 36 >"$secret_work/mariadb-password"
+    openssl rand -base64 36 >"$secret_work/redis-password"
+    openssl rand -base64 36 >"$secret_work/restic-password"
+    jq -n \
+      --rawfile mariadb "$secret_work/mariadb-password" \
+      --rawfile redis "$secret_work/redis-password" \
+      --rawfile restic "$secret_work/restic-password" \
+      --rawfile certificate "$certificate_work/server.crt" \
+      --rawfile private_key "$certificate_work/server.key" \
+      --rawfile ca_certificate "$certificate_work/ca.crt" \
+      --arg certificate_key "$certificate_key" \
+      --arg private_key_key "$private_key_key" \
+      --arg ca_certificate_key "$ca_certificate_key" \
+      '{mariadb_root_password: $mariadb, redis_password: $redis, restic_password: $restic,
+        k3s_token_policy: "generate_during_phase_4",
+        ($certificate_key): $certificate, ($private_key_key): $private_key,
+        ($ca_certificate_key): $ca_certificate}' >"$secret_work/plain.json"
+    recipient="$(age-keygen -y "$SOPS_AGE_KEY_FILE")"
+    encrypted="$(mktemp "$environment_dir/.secrets.sops.yml.XXXXXXXX")"
+    chmod 0600 "$encrypted"
+    sops --encrypt --age "$recipient" --input-type json --output-type yaml \
+      "$secret_work/plain.json" >"$encrypted"
+    mv -f "$encrypted" "$secrets"
+    rm -rf -- "$secret_work"
+    secret_work=""
+  else
+    [[ -s "$secrets" ]] || { echo "error: encrypted secrets file is missing or empty; use --initialize-sops" >&2; exit 1; }
+    secret_work="$(mktemp -d "$environment_dir/.generated/.secrets.XXXXXXXX")"
+    updated="$secret_work/secrets.sops.yml"
+    cp --preserve=mode "$secrets" "$updated"
+    update_secret() {
+      local key="$1"
+      local value_file="$2"
+      sops set "$updated" "[\"$key\"]" "$(jq -Rs . <"$value_file")" >/dev/null
+    }
+    update_secret "$certificate_key" "$certificate_work/server.crt"
+    update_secret "$private_key_key" "$certificate_work/server.key"
+    update_secret "$ca_certificate_key" "$certificate_work/ca.crt"
+    mv -f "$updated" "$secrets"
+    rm -rf -- "$secret_work"
+    secret_work=""
+  fi
+  rm -rf -- "$output_dir"
+  mv "$certificate_work" "$output_dir"
+  trap - EXIT
+  echo "Generated test PKI and updated encrypted TLS values for environment $environment."
+else
+  rm -rf -- "$output_dir"
+  mv "$certificate_work" "$output_dir"
+  trap - EXIT
+  echo "Generated test PKI in $output_dir. Re-run with --force --update-sops to rotate and import it."
+fi

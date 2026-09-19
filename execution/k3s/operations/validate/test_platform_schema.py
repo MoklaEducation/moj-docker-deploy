@@ -69,7 +69,8 @@ class PlatformSchemaTests(unittest.TestCase):
 
     def test_phase_3_backup_fields_are_required(self):
         for field in (
-            "restic_repository", "repository_credential_secret_keys", "staging_path", "schedule",
+            "repository_mode", "local_repository_risk_accepted", "restic_repository",
+            "repository_credential_secret_keys", "staging_path", "schedule",
             "randomized_delay_seconds", "retention", "minimum_expected_frequency_hours",
             "minimum_free_space_mb", "restore",
         ):
@@ -102,7 +103,7 @@ class PlatformSchemaTests(unittest.TestCase):
             (("data_services", "redis", "data_policy"), "best-effort"),
             (("data_services", "redis", "maxmemory"), 0),
             (("data_services", "redis", "maxmemory_policy"), "unknown"),
-            (("backup", "repository_credential_secret_keys"), []),
+            (("backup", "repository_credential_secret_keys"), ["INVALID-KEY"]),
             (("backup", "retention", "daily"), 0),
             (("backup", "restore", "target_root"), "relative/path"),
             (("backup", "restore", "redis_port"), 70000),

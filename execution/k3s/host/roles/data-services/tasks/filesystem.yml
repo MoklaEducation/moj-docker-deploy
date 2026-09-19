@@ -16,7 +16,10 @@
     - {path: "{{ data_services_backup_secret_root }}", mode: "0700"}
     - {path: "{{ backup.staging_path }}", mode: "0700"}
     - {path: "{{ backup.restore.target_root }}", mode: "0700"}
-  when: not ansible_check_mode
+    - {path: "{{ backup.restic_repository }}", mode: "0700"}
+  when:
+    - not ansible_check_mode
+    - item.path != backup.restic_repository or backup.repository_mode == 'local-development'
 
 - name: Create separated primary data directories
   ansible.builtin.file:

@@ -44,8 +44,33 @@ def validate_image(check_id, image, errors):
         errors.append((check_id, "image tag must identify a reviewed version and cannot be latest"))
 
 
-def validate_repository(repository, errors):
+def validate_repository(platform, actual_paths, errors):
     check_id = "backup.repository.safe_off_host"
+    backup = platform["backup"]
+    repository = backup["restic_repository"]
+    if backup["repository_mode"] == "local-development":
+        if platform["environment_name"] != "test" or not backup["local_repository_risk_accepted"]:
+            errors.append(("backup.repository.local_development", "local repository requires the test environment and explicit host-loss risk acceptance"))
+            return
+        repository_path = pathlib.PurePosixPath(repository)
+        storage_root = pathlib.PurePosixPath(platform["host"]["storage_root"])
+        excluded_paths = {
+            pathlib.PurePosixPath(platform["docker"]["data_root"]),
+            actual_paths["data_services.mariadb.data_path"],
+            actual_paths["data_services.redis.data_path"],
+            actual_paths["backup.staging_path"],
+            pathlib.PurePosixPath(backup["restore"]["target_root"]),
+        }
+        if not repository_path.is_absolute() or storage_root not in repository_path.parents:
+            errors.append(("backup.repository.local_path", "local repository must be an absolute child of the configured storage root"))
+        if any(repository_path == path or repository_path in path.parents or path in repository_path.parents for path in excluded_paths):
+            errors.append(("backup.repository.local_path", "local repository must not overlap data, staging, restore, or Docker roots"))
+        if backup["repository_credential_secret_keys"]:
+            errors.append(("backup.repository.local_credentials", "local repository must not declare provider credentials"))
+        return
+    if backup["repository_mode"] != "off-host":
+        errors.append((check_id, "repository mode is unsupported"))
+        return
     if is_placeholder(repository) or any(character.isspace() for character in repository):
         errors.append((check_id, "restic repository must be a real non-placeholder off-host location"))
         return
@@ -150,7 +175,7 @@ def validate_configuration(platform):
     if any(path == docker_root or docker_root in path.parents for key, path in actual_paths.items() if ".data_path" in key):
         errors.append(("data_services.paths.outside_docker", "service data paths must be outside Docker's data root"))
 
-    validate_repository(backup["restic_repository"], errors)
+    validate_repository(platform, actual_paths, errors)
     if not SCHEDULE_PATTERN.fullmatch(backup["schedule"]):
         errors.append(("backup.schedule.daily_utc", "schedule must select an explicit daily UTC time"))
     if any(is_placeholder(value) for value in backup["repository_credential_secret_keys"]):

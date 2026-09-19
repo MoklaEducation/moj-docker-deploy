@@ -34,6 +34,9 @@ def valid_platform():
             "approved_by": "platform-operator",
         }
     platform["backup"]["restic_repository"] = "s3:https://objects.internal.example/backups/mokla-test"
+    platform["backup"]["repository_mode"] = "off-host"
+    platform["backup"]["local_repository_risk_accepted"] = False
+    platform["backup"]["repository_credential_secret_keys"] = ["restic_aws_access_key_id", "restic_aws_secret_access_key"]
     return platform
 
 
@@ -44,15 +47,8 @@ class DataServicesConfigTests(unittest.TestCase):
     def test_complete_safe_configuration_passes(self):
         self.assertEqual([], MODULE.validate_configuration(valid_platform()))
 
-    def test_current_operator_placeholders_are_rejected(self):
-        check_ids = {check_id for check_id, _ in MODULE.validate_configuration(PLATFORM)}
-        self.assertIn("data_services.bind_address.private", check_ids)
-        self.assertIn("data_services.mariadb.image.pinned", check_ids)
-        self.assertIn("data_services.redis.image.pinned", check_ids)
-        self.assertIn("data_services.mariadb.image_reviewed", check_ids)
-        self.assertIn("data_services.redis.image_reviewed", check_ids)
-        self.assertIn("data_services.tls.renewal_owner", check_ids)
-        self.assertIn("backup.repository.safe_off_host", check_ids)
+    def test_current_test_configuration_passes(self):
+        self.assertEqual([], MODULE.validate_configuration(PLATFORM))
 
     def test_public_wildcard_and_mismatched_bind_addresses_are_rejected(self):
         for address, check_id in (
@@ -87,6 +83,26 @@ class DataServicesConfigTests(unittest.TestCase):
                 platform = valid_platform()
                 platform["backup"]["restic_repository"] = repository
                 self.assert_rejected(platform, "backup.repository.safe_off_host")
+
+    def test_local_repository_requires_bounded_test_exception(self):
+        platform = valid_platform()
+        platform["backup"]["repository_mode"] = "local-development"
+        platform["backup"]["local_repository_risk_accepted"] = True
+        platform["backup"]["restic_repository"] = "/srv/mokla/restic-repository"
+        platform["backup"]["repository_credential_secret_keys"] = []
+        self.assertEqual([], MODULE.validate_configuration(platform))
+
+        for environment, accepted, path, check_id in (
+            ("production", True, "/srv/mokla/restic-repository", "backup.repository.local_development"),
+            ("test", False, "/srv/mokla/restic-repository", "backup.repository.local_development"),
+            ("test", True, "/srv/mokla/backup-staging/repository", "backup.repository.local_path"),
+        ):
+            with self.subTest(environment=environment, accepted=accepted, path=path):
+                candidate = copy.deepcopy(platform)
+                candidate["environment_name"] = environment
+                candidate["backup"]["local_repository_risk_accepted"] = accepted
+                candidate["backup"]["restic_repository"] = path
+                self.assert_rejected(candidate, check_id)
 
     def test_restore_must_be_isolated_and_loopback_only(self):
         platform = valid_platform()
