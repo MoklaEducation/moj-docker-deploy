@@ -33,10 +33,16 @@ class DataServicesSecretsTests(unittest.TestCase):
         errors = MODULE.validate_values(platform, values)
         self.assertIn("data_services.secrets.required_keys", {check_id for check_id, _ in errors})
 
-    def test_redis_password_is_conditional_on_authentication(self):
+    def test_external_mode_uses_probe_credentials_without_bootstrap_credentials(self):
         platform = copy.deepcopy(PLATFORM)
-        platform["data_services"]["redis"]["authentication_enabled"] = False
-        self.assertNotIn("redis_password", MODULE.required_secret_keys(platform))
+        platform["data_services"]["provisioning_mode"] = "external"
+        platform["data_services"]["mariadb"]["probe_password_secret_key"] = "mariadb_probe_password"
+        platform["data_services"]["redis"]["probe_password_secret_key"] = "redis_probe_password"
+        keys = MODULE.required_secret_keys(platform)
+        self.assertIn("mariadb_probe_password", keys)
+        self.assertIn("redis_probe_password", keys)
+        self.assertNotIn("mariadb_root_password", keys)
+        self.assertNotIn("redis_password", keys)
 
     def test_placeholder_values_are_rejected_without_echoing_them(self):
         values = expected_values(PLATFORM)

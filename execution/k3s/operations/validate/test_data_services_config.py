@@ -61,6 +61,12 @@ class DataServicesConfigTests(unittest.TestCase):
                 platform["data_services"]["bind_address"] = address
                 self.assert_rejected(platform, check_id)
 
+    def test_external_endpoint_does_not_need_to_match_platform_host(self):
+        platform = valid_platform()
+        platform["data_services"]["provisioning_mode"] = "external"
+        platform["data_services"]["bind_address"] = "10.20.30.41"
+        self.assertEqual([], MODULE.validate_configuration(platform))
+
     def test_unpinned_and_latest_images_are_rejected(self):
         for image in (
             "docker.io/library/mariadb:11.8.3",

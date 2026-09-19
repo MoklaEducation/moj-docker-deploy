@@ -6,4 +6,5 @@
   vars_files:
     - "{{ platform_file }}"
   roles:
-    - data-services
+    - role: data-services
+      when: data_services.provisioning_mode == 'helper-managed'

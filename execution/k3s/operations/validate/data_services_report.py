@@ -26,6 +26,7 @@ def parse_args():
     parser.add_argument("--phase-1-report", type=pathlib.Path, required=True)
     parser.add_argument("--phase-2-report", type=pathlib.Path, required=True)
     parser.add_argument("--facts", type=pathlib.Path, required=True)
+    parser.add_argument("--runtime-report", type=pathlib.Path, required=True)
     parser.add_argument("--ansible-output", type=pathlib.Path, required=True)
     parser.add_argument("--ansible-status", type=int, required=True)
     parser.add_argument("--report", type=pathlib.Path, required=True)
@@ -58,9 +59,20 @@ def main():
     phase_1 = load_json(args.phase_1_report, {})
     phase_2 = load_json(args.phase_2_report, {})
     raw_facts = load_json(args.facts, {})
+    runtime = load_json(args.runtime_report, {})
     facts = {key: raw_facts[key] for key in ALLOWED_FACT_KEYS if key in raw_facts}
     recap = parse_recap(args.ansible_output.read_text(encoding="utf-8", errors="replace"))
     checks = list(facts.pop("checks", []))
+    runtime_checks = runtime.get("checks", []) if isinstance(runtime, dict) else []
+    if runtime_checks:
+        checks.extend(runtime_checks)
+    else:
+        checks.append({
+            "id": "data_services.runtime.completed",
+            "status": "fail",
+            "evidence": "Live protocol validation did not produce a report",
+            "remediation": "Run the Phase 3 check with reachable TLS endpoints and valid SOPS credentials.",
+        })
     checks.append({
         "id": "data_services.ansible.completed",
         "status": "pass" if args.ansible_status == 0 else "fail",
@@ -80,6 +92,10 @@ def main():
         "ansible_recap": recap,
         "checks": checks,
         "facts": facts,
+        "runtime": {
+            "endpoint": runtime.get("endpoint"),
+            "provisioning_mode": runtime.get("provisioning_mode"),
+        },
         "overall_status": "fail" if failed else ("partial" if pending else "pass"),
     }
     assert_redacted(report)

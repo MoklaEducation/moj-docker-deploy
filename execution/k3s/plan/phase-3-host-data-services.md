@@ -65,6 +65,7 @@ overwrite or import the current Compose data automatically.
 
 ## Non-Goals
 
+- Installing MariaDB, Redis, or their server packages natively on the host.
 - Installing k3s or deploying Kubernetes resources.
 - Creating DMOJ, Keycloak, or other application databases, users, grants, or schemas.
 - Migrating existing Compose database content.
@@ -79,6 +80,7 @@ overwrite or import the current Compose data automatically.
 | --- | --- |
 | Runtime | Phase 2 Docker Engine and Compose plugin |
 | Supervisor | A project-owned systemd unit invoking Docker Compose |
+| Service topology | One MariaDB container and one Redis container for the environment |
 | Network mode | Host networking; no Docker-published ports or bridge NAT |
 | MariaDB storage | Bind-mounted dedicated host directory |
 | Redis storage | Bind-mounted directory when persistent; explicit disposable mode otherwise |
@@ -92,6 +94,17 @@ overwrite or import the current Compose data automatically.
 Host networking is chosen so the host firewall remains the network-policy authority and
 Docker port publishing cannot bypass UFW through its NAT rules. Compose files must not
 contain `ports:` entries for either service.
+
+The MariaDB container is the environment's shared database engine. Later application
+phases may create separate logical databases and least-privilege users in that engine,
+for example distinct DMOJ and Keycloak databases, without installing another MariaDB
+server. Phase 3 creates only the engine and root/bootstrap credential; application-owned
+database names, users, grants, schemas, and credentials remain outside this phase.
+
+The Redis container may be shared only when each consumer's key namespace and durability
+contract are explicit. Redis numbered databases are not a security or resource-isolation
+boundary. A later application plan that needs incompatible persistence, eviction,
+security, or lifecycle behavior must justify a separate Redis instance.
 
 ## Configuration Contract
 
@@ -152,6 +165,11 @@ Required encrypted secret keys:
 - `restic_password` and provider-specific repository credentials;
 - TLS server certificate, private key, and issuing CA certificate;
 - optional TLS CA private key only when this host is explicitly responsible for renewal.
+
+Extend the existing environment SOPS document when later applications add database or
+Redis credentials. Use service-scoped keys and separate least-privilege credentials;
+never reuse the MariaDB root/bootstrap credential as an application credential. Adding a
+logical database or user remains an application-owned, explicitly reviewed operation.
 
 Prefer issuing the service certificate outside the target host. Never place the CA
 private key on the host unless an accepted certificate lifecycle requires it.
@@ -238,6 +256,12 @@ Use separate roots with restrictive ownership:
 /srv/mokla/backup-staging/             temporary logical backup artifacts
 /var/log/mokla/                        host operation status/evidence as configured
 ```
+
+Use `/srv/mokla/data-services` as the designated data root and keep each container's
+state in its own subdirectory. Do not create one undifferentiated shared data directory,
+an opaque Docker named volume, or an application-local data path. Additional
+containerized data services must receive sibling subdirectories with explicit ownership
+and backup policy.
 
 - Secret directories use mode `0700`; secret files use `0600` and root ownership.
 - Do not put secrets in Compose environment values, command arguments, labels, logs, or

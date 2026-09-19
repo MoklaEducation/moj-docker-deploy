@@ -49,13 +49,13 @@ class PlatformSchemaTests(unittest.TestCase):
 
     def test_phase_3_data_service_fields_are_required(self):
         required_fields = {
-            "data_services": ("bind_address", "allowed_client_cidrs", "tls", "mariadb", "redis"),
+            "data_services": ("provisioning_mode", "bind_address", "allowed_client_cidrs", "tls", "mariadb", "redis"),
             "mariadb": (
-                "image", "compatibility_rationale", "image_scan", "port", "character_set", "collation", "data_path", "config_path",
+                "image", "compatibility_rationale", "image_scan", "port", "probe_username", "probe_password_secret_key", "character_set", "collation", "data_path", "config_path",
                 "backup_timeout_seconds", "health_timeout_seconds", "memory_limit", "cpus",
             ),
             "redis": (
-                "image", "compatibility_rationale", "image_scan", "port", "authentication_enabled", "data_policy", "data_path", "config_path",
+                "image", "compatibility_rationale", "image_scan", "port", "probe_username", "probe_password_secret_key", "authentication_enabled", "data_policy", "data_path", "config_path",
                 "maxmemory", "maxmemory_policy", "health_timeout_seconds", "memory_limit", "cpus",
             ),
         }

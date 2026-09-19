@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+K3S_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+VENV="$K3S_DIR/.controller-venv"
+[[ -x "$VENV/bin/python3" ]] && export PATH="$VENV/bin:$PATH"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  data-services check --environment NAME
+  data-services setup --environment NAME --provision-host-services
+  data-services encrypt-secrets --environment NAME --from PATH [--remove-source]
+
+check            Validate configuration, encrypted secrets, and live MariaDB/Redis
+                 TLS/authentication contracts without provisioning services.
+setup            Explicitly provision helper-managed host services using Ansible,
+                 then run the same live checks. Refuses external provisioning mode.
+encrypt-secrets  Encrypt a caller-owned temporary YAML file with the environment's age
+                 identity. The plaintext is removed only with --remove-source.
+EOF
+}
+
+die() {
+  echo "error: $1" >&2
+  exit 2
+}
+
+action="${1:-}"
+[[ -n "$action" ]] || { usage >&2; exit 2; }
+shift
+environment=""
+source_file=""
+provision=false
+remove_source=false
+while (($# > 0)); do
+  case "$1" in
+    --environment) [[ $# -ge 2 ]] || die "--environment requires a value"; environment="$2"; shift 2 ;;
+    --from) [[ $# -ge 2 ]] || die "--from requires a value"; source_file="$2"; shift 2 ;;
+    --provision-host-services) provision=true; shift ;;
+    --remove-source) remove_source=true; shift ;;
+    --help|-h) usage; exit 0 ;;
+    *) die "unknown argument: $1" ;;
+  esac
+done
+
+[[ "$environment" =~ ^[a-zA-Z0-9._-]+$ ]] || die "--environment is required"
+environment_dir="$K3S_DIR/environments/$environment"
+platform="$environment_dir/platform.yml"
+secrets="$environment_dir/secrets.sops.yml"
+identity="${SOPS_AGE_KEY_FILE:-$environment_dir/age-identity.txt}"
+[[ -f "$platform" ]] || die "platform file not found: $platform"
+
+case "$action" in
+  check)
+    [[ "$provision" == false && -z "$source_file" && "$remove_source" == false ]] || die "check accepts only --environment"
+    export SOPS_AGE_KEY_FILE="$identity"
+    exec "$K3S_DIR/bootstrap.sh" check --environment "$environment" --through host-data-services
+    ;;
+  setup)
+    [[ "$provision" == true ]] || die "setup requires explicit --provision-host-services"
+    [[ -z "$source_file" && "$remove_source" == false ]] || die "setup does not accept secret source options"
+    mode="$(python3 - "$platform" <<'PY'
+import pathlib
+import sys
+import yaml
+print(yaml.safe_load(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))["data_services"]["provisioning_mode"])
+PY
+)"
+    [[ "$mode" == "helper-managed" ]] || die "setup is disabled when data_services.provisioning_mode is external"
+    export SOPS_AGE_KEY_FILE="$identity"
+    exec "$K3S_DIR/bootstrap.sh" apply --environment "$environment" --through host-data-services
+    ;;
+  encrypt-secrets)
+    [[ "$provision" == false ]] || die "encrypt-secrets does not provision services"
+    [[ -n "$source_file" && -f "$source_file" ]] || die "encrypt-secrets requires an existing --from PATH"
+    [[ -r "$identity" ]] || die "age identity is not readable: $identity"
+    for command in age-keygen sops; do
+      command -v "$command" >/dev/null || die "$command is required"
+    done
+    recipient="$(age-keygen -y "$identity")"
+    encrypted="$(mktemp "$environment_dir/.secrets.sops.yml.XXXXXXXX")"
+    trap 'rm -f "$encrypted"' EXIT
+    sops --encrypt --age "$recipient" --input-type yaml --output-type yaml "$source_file" >"$encrypted"
+    chmod 0600 "$encrypted"
+    export SOPS_AGE_KEY_FILE="$identity"
+    python3 "$K3S_DIR/operations/validate/data_services_secrets.py" --platform "$platform" --secrets "$encrypted"
+    mv -f "$encrypted" "$secrets"
+    trap - EXIT
+    [[ "$remove_source" == false ]] || rm -f -- "$source_file"
+    echo "Encrypted and validated environment secrets: $secrets"
+    ;;
+  --help|-h) usage ;;
+  *) usage >&2; exit 2 ;;
+esac

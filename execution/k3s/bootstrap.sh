@@ -10,6 +10,7 @@ UPDATE_REPORT="$SCRIPT_DIR/operations/validate/update_report.py"
 HOST_BASELINE_REPORT="$SCRIPT_DIR/operations/validate/host_baseline_report.py"
 DATA_SERVICES_CONFIG="$SCRIPT_DIR/operations/validate/data_services_config.py"
 DATA_SERVICES_SECRETS="$SCRIPT_DIR/operations/validate/data_services_secrets.py"
+DATA_SERVICES_RUNTIME="$SCRIPT_DIR/operations/validate/data_services_runtime.py"
 DATA_SERVICES_REPORT="$SCRIPT_DIR/operations/validate/data_services_report.py"
 CONTROLLER_VENV="$SCRIPT_DIR/.controller-venv"
 
@@ -137,10 +138,11 @@ python3 "$DATA_SERVICES_SECRETS" \
 
 phase3_report_path="$SCRIPT_DIR/.evidence/$environment/phase-3-host-data-services.json"
 phase3_facts_path="$SCRIPT_DIR/.evidence/$environment/.phase-3-host-data-services-facts.json"
+phase3_runtime_path="$SCRIPT_DIR/.evidence/$environment/.phase-3-runtime.json"
 phase3_output="$(mktemp)"
 phase3_secrets=""
-trap 'rm -f "$phase2_output" "$phase2_facts_path" "$phase3_output" "$phase3_facts_path" "$phase3_secrets"' EXIT
-rm -f "$phase3_facts_path"
+trap 'rm -f "$phase2_output" "$phase2_facts_path" "$phase3_output" "$phase3_facts_path" "$phase3_runtime_path" "$phase3_secrets"' EXIT
+rm -f "$phase3_facts_path" "$phase3_runtime_path"
 
 phase3_args=()
 if [[ "$action" == "check" ]]; then
@@ -164,12 +166,21 @@ phase3_status=${PIPESTATUS[0]}
 set -e
 
 set +e
+python3 "$DATA_SERVICES_RUNTIME" \
+  --platform "$environment_dir/platform.yml" \
+  --secrets "$environment_dir/secrets.sops.yml" \
+  --report "$phase3_runtime_path"
+phase3_runtime_status=$?
+set -e
+
+set +e
 python3 "$DATA_SERVICES_REPORT" \
   --environment "$environment" \
   --mode "$action" \
   --phase-1-report "$report_path" \
   --phase-2-report "$phase2_report_path" \
   --facts "$phase3_facts_path" \
+  --runtime-report "$phase3_runtime_path" \
   --ansible-output "$phase3_output" \
   --ansible-status "$phase3_status" \
   --report "$phase3_report_path"
@@ -178,5 +189,8 @@ set -e
 
 if (( phase3_status != 0 )); then
   exit "$phase3_status"
+fi
+if (( phase3_runtime_status != 0 )); then
+  exit "$phase3_runtime_status"
 fi
 exit "$phase3_report_status"

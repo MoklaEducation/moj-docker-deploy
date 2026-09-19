@@ -27,16 +27,18 @@ def parse_args():
 
 def required_secret_keys(platform):
     tls = platform["data_services"]["tls"]
+    data_services = platform["data_services"]
     keys = {
-        "mariadb_root_password",
         "restic_password",
+        data_services["mariadb"]["probe_password_secret_key"],
+        data_services["redis"]["probe_password_secret_key"],
         tls["server_certificate_secret_key"],
         tls["server_private_key_secret_key"],
         tls["ca_certificate_secret_key"],
         *platform["backup"]["repository_credential_secret_keys"],
     }
-    if platform["data_services"]["redis"]["authentication_enabled"]:
-        keys.add("redis_password")
+    if data_services["provisioning_mode"] == "helper-managed":
+        keys.update(("mariadb_root_password", "redis_password"))
     return keys
 
 

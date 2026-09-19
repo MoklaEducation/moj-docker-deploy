@@ -106,7 +106,7 @@ def validate_configuration(platform):
     else:
         if bind_address.version != 4 or not bind_address.is_private or bind_address.is_loopback or bind_address.is_unspecified:
             errors.append(("data_services.bind_address.private", "bind address must be a specific non-loopback private IPv4 address"))
-        if str(bind_address) != platform["host_address"]:
+        if data_services["provisioning_mode"] == "helper-managed" and str(bind_address) != platform["host_address"]:
             errors.append(("data_services.bind_address.host_match", "bind address must match the configured host address"))
 
     for value in data_services["allowed_client_cidrs"]:

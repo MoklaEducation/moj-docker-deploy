@@ -1,6 +1,6 @@
 # Phase 3 Host Data Services Progress
 
-Status: configured for controlled test apply; host mutation and environment acceptance not run
+Status: optional test-host provisioning ready; live services and environment acceptance not yet established
 
 Last updated: 2026-09-19
 
@@ -32,6 +32,11 @@ remain in [phase-3-host-data-services.md](../phase-3-host-data-services.md).
   validates backup mechanics but does not protect against host loss and is not accepted
   for non-test environments.
 - The semantic configuration and encrypted secret/TLS validation gates now pass.
+- `provisioning_mode` separates explicit helper-managed host setup from externally
+  managed production endpoints. The setup helper requires `--provision-host-services`.
+- Phase 3 now requires live authenticated TLS probes: MariaDB must execute `SELECT 1`
+  and Redis must return `PONG`. Because services have not been provisioned, the current
+  runtime check correctly fails both probes.
 - A controller-side test CA and service certificate covering `192.168.1.151` are stored
   beneath the ignored environment `.generated` directory. The certificate, server key,
   and CA certificate are assigned through SOPS; the CA key remains controller-side.
@@ -61,6 +66,10 @@ execution/k3s/
   operations/certificates/
     generate-test-data-services
     README.md
+  operations/data-services/
+    data-services
+    README.md
+    test_data_services_helper.py
   operations/validate/
     data_services_config.py
     data_services_secrets.py
@@ -83,7 +92,7 @@ outside this implementation.
 
 ## Validation Results
 
-The complete explicit unit suite passed 41 tests. Python compilation, shell syntax,
+The complete explicit unit suite passed 49 tests. Python compilation, shell syntax,
 inventory discovery, all three playbook syntax checks, controller dependency validation,
 wrapper argument rejection, VS Code diagnostics, and `git diff --check` passed.
 
@@ -91,8 +100,9 @@ Public read-only results:
 
 - Phase 1 check: exit `0`, `ok=16 changed=0 failed=0`.
 - Phase 2 check: exit `0`, `ok=76 changed=0 failed=0 skipped=5`.
-- Phase 3 public check: exit `0`, `ok=14 changed=0 failed=0 skipped=28`; the resulting
-  report is partial only because external network acceptance is deferred.
+- Before live protocol gates were added, Phase 3 Ansible check reached
+  `ok=14 changed=0 failed=0 skipped=28`. The current public check intentionally returns
+  failure until both configured services answer authenticated TLS probes.
 - Direct Phase 3 role check for implementation validation: exit `0`,
   `ok=14 changed=0 failed=0 skipped=28`.
 - Rendered backup, verification, and restore scripts passed `bash -n`.
@@ -127,6 +137,21 @@ values through chat:
 The current test-only choices are a disposable Redis policy, a local restic repository,
 and test-controller PKI. They must not be promoted to production unchanged.
 
+## Operator Commands
+
+```bash
+# Non-mutating configuration and live-service validation
+./execution/k3s/operations/data-services/data-services check --environment test
+
+# Explicit test-host provisioning through the ordered Ansible phases
+./execution/k3s/operations/data-services/data-services setup \
+  --environment test --provision-host-services
+```
+
+For production endpoints set `data_services.provisioning_mode: external`, configure
+dedicated probe users and their SOPS key names, and run only the check command. The
+external mode skips local Compose, systemd, filesystem, firewall, and backup ownership.
+
 ## Remaining Work
 
 - Replace the local-development restic repository with off-host storage before treating
@@ -152,3 +177,4 @@ before final environment acceptance.
 | 2026-09-19 | Added semantic and encrypted-secret gates, public dispatch, guarded host role, offline rendering, and redacted convergence evidence. | Full unit suite passed; Phase 1 and Phase 2 public checks remained clean; direct Phase 3 check mode passed with zero changes. |
 | 2026-09-19 | Added locked logical backup, conditional retention, snapshot verification, marker-based isolated restore, lifecycle evidence, and failure-path safety regressions. | Rendered script syntax, 8 focused safety tests, all playbook syntax checks, and the then-current 40-test suite passed. |
 | 2026-09-19 | Configured the test host address, pinned and scanned current service images, added a bounded local-restic exception, and added renewable test PKI with SOPS import. | Semantic and encrypted-secret validation passed; certificate chain/SAN and image command compatibility passed; public Phase 3 check reached `ok=14 changed=0 failed=0 skipped=28`. |
+| 2026-09-19 | Split optional helper-managed provisioning from external service validation and added authenticated TLS protocol probes with redacted evidence. | Focused provisioning, credential, runtime, report, and helper tests passed; absent services produce explicit MariaDB and Redis runtime failures. |
