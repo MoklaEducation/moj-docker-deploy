@@ -1,0 +1,59 @@
+name: {{ data_services_project_name }}
+services:
+  mariadb:
+    image: {{ data_services.mariadb.image }}
+    network_mode: host
+    restart: unless-stopped
+    init: true
+    environment:
+      MARIADB_ROOT_PASSWORD_FILE: /run/secrets/mariadb-root-password
+    volumes:
+      - {{ data_services.mariadb.data_path }}:/var/lib/mysql
+      - {{ data_services.mariadb.config_path }}/mariadb.cnf:/etc/mysql/conf.d/90-mokla.cnf:ro
+      - {{ data_services_runtime_secret_root }}:/run/secrets:ro
+    tmpfs:
+      - /tmp
+      - /run/mysqld
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: [CMD, mariadb-admin, --defaults-extra-file=/run/secrets/mariadb-health.cnf, ping]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    mem_limit: {{ data_services.mariadb.memory_limit }}
+    cpus: {{ data_services.mariadb.cpus }}
+    logging:
+      driver: json-file
+      options:
+        max-size: {{ docker.log_max_size }}
+        max-file: "{{ docker.log_max_files }}"
+  redis:
+    image: {{ data_services.redis.image }}
+    network_mode: host
+    restart: unless-stopped
+    init: true
+    command: [redis-server, /usr/local/etc/redis/redis.conf]
+    volumes:
+      - {{ data_services.redis.data_path }}:/data
+      - {{ data_services.redis.config_path }}/redis.conf:/usr/local/etc/redis/redis.conf:ro
+      - {{ data_services.redis.config_path }}/healthcheck.sh:/usr/local/bin/mokla-redis-healthcheck:ro
+      - {{ data_services_runtime_secret_root }}:/run/secrets:ro
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: [CMD, /usr/local/bin/mokla-redis-healthcheck]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    mem_limit: {{ data_services.redis.memory_limit }}
+    cpus: {{ data_services.redis.cpus }}
+    logging:
+      driver: json-file
+      options:
+        max-size: {{ docker.log_max_size }}
+        max-file: "{{ docker.log_max_files }}"

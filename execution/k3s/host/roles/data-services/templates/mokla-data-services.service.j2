@@ -1,0 +1,17 @@
+[Unit]
+Description=Mokla host data services
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory={{ host.config_root }}/data-services
+ExecStart=/usr/bin/docker compose --project-name {{ data_services_project_name }} --file {{ data_services_compose_path }} up --detach --remove-orphans --wait
+ExecStop=/usr/bin/docker compose --project-name {{ data_services_project_name }} --file {{ data_services_compose_path }} stop
+TimeoutStartSec={{ [data_services.mariadb.health_timeout_seconds, data_services.redis.health_timeout_seconds] | max }}
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target

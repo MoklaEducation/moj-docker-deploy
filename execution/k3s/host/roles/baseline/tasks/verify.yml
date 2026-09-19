@@ -28,8 +28,8 @@
       check_mode: false
       changed_when: false
 
-    - name: Read Docker container count
-      ansible.builtin.command: docker ps --all --quiet
+    - name: Read Docker container names
+      ansible.builtin.command: docker ps --all --format '{{ "{{.Names}}" }}'
       register: baseline_verify_containers
       check_mode: false
       changed_when: false
@@ -137,7 +137,7 @@
           - (baseline_verify_docker.stdout | from_json).DockerRootDir == docker.data_root
           - (baseline_verify_docker.stdout | from_json).Driver != ''
           - (baseline_verify_docker.stdout | from_json).Swarm.LocalNodeState == 'inactive'
-          - baseline_verify_containers.stdout_lines | length == 0
+          - baseline_verify_containers.stdout_lines | reject('match', '^mokla-' ~ environment_name ~ '-(mariadb|redis)-1$') | list | length == 0
           - ansible_facts.services['docker.service'].state == 'running'
           - ansible_facts.services['chrony.service'].state == 'running'
           - baseline_verify_modules.results | rejectattr('stat.exists') | list | length == 0
@@ -236,10 +236,10 @@
           status: "{{ 'pass' if ((baseline_verify_docker.stdout | from_json).DockerRootDir == docker.data_root and (baseline_verify_docker.stdout | from_json).LoggingDriver == 'json-file' and baseline_verify_docker_config.rc == 0 and (baseline_verify_docker_config.stdout | from_json)['log-opts']['max-size'] == docker.log_max_size and (baseline_verify_docker_config.stdout | from_json)['log-opts']['max-file'] == (docker.log_max_files | string) and baseline_verify_docker_socket.stat.pw_name == 'root') else 'fail' }}"
           evidence: Docker data root, bounded json-file logging, and root-owned socket inspected
           remediation: "Apply the validated Docker daemon configuration."
-        - id: docker.workloads.absent
-          status: "{{ 'pass' if baseline_verify_containers.stdout_lines | length == 0 and (baseline_verify_docker.stdout | from_json).Swarm.LocalNodeState == 'inactive' else 'fail' }}"
-          evidence: Docker container count and Swarm state inspected without exposing identifiers
-          remediation: "Remove unintended containers and leave Swarm before completing Phase 2."
+        - id: docker.workloads.managed
+          status: "{{ 'pass' if baseline_verify_containers.stdout_lines | reject('match', '^mokla-' ~ environment_name ~ '-(mariadb|redis)-1$') | list | length == 0 and (baseline_verify_docker.stdout | from_json).Swarm.LocalNodeState == 'inactive' else 'fail' }}"
+          evidence: Only deterministic later-phase data-service containers may coexist with the Phase 2 Docker baseline
+          remediation: "Remove or explicitly migrate unmanaged containers and leave Swarm before continuing."
   delegate_to: localhost
   become: false
   check_mode: false

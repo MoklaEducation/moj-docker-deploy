@@ -1,0 +1,31 @@
+---
+- name: Install non-secret data-service configuration
+  ansible.builtin.copy:
+    content: "{{ item.content }}"
+    dest: "{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "0640"
+  loop:
+    - {content: "{{ data_services_rendered_compose }}", dest: "{{ data_services_compose_path }}"}
+    - {content: "{{ data_services_rendered_mariadb }}", dest: "{{ data_services.mariadb.config_path }}/mariadb.cnf"}
+    - {content: "{{ data_services_rendered_redis }}", dest: "{{ data_services.redis.config_path }}/redis.conf"}
+  when: not ansible_check_mode
+  notify: Restart data services
+
+- name: Install Redis health check
+  ansible.builtin.copy:
+    content: "{{ lookup('ansible.builtin.template', 'redis-healthcheck.sh.j2') }}"
+    dest: "{{ data_services.redis.config_path }}/healthcheck.sh"
+    owner: root
+    group: root
+    mode: "0750"
+  when: not ansible_check_mode
+  notify: Restart data services
+
+- name: Validate installed Compose definition
+  ansible.builtin.command:
+    argv: [docker, compose, --project-name, "{{ data_services_project_name }}", --file, "{{ data_services_compose_path }}", config, --quiet]
+  check_mode: false
+  changed_when: false
+  when: not ansible_check_mode

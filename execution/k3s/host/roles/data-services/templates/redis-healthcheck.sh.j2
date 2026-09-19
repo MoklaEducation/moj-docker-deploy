@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+REDISCLI_AUTH="$(cat /run/secrets/redis-password)"
+export REDISCLI_AUTH
+exec redis-cli --tls --cacert /run/secrets/ca.crt -h {{ data_services.bind_address }} -p {{ data_services.redis.port }} ping

@@ -1,0 +1,9 @@
+---
+- name: Converge Phase 3 host data services
+  hosts: platform_host
+  become: true
+  gather_facts: true
+  vars_files:
+    - "{{ platform_file }}"
+  roles:
+    - data-services

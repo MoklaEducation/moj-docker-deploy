@@ -1,0 +1,85 @@
+---
+- name: Load Phase 2 controller evidence
+  ansible.builtin.set_fact:
+    data_services_phase2_evidence: "{{ lookup('ansible.builtin.file', phase2_report_path) | from_json }}"
+  no_log: true
+
+- name: Require converged Phase 2 evidence
+  ansible.builtin.assert:
+    that:
+      - data_services_phase2_evidence.phase == 'phase-2-host-baseline'
+      - data_services_phase2_evidence.environment == environment_name
+      - data_services_phase2_evidence.overall_status == 'pass'
+      - not data_services_phase2_evidence.reboot_required | bool
+      - data_services_phase2_evidence.ansible_recap.failed | int == 0
+      - data_services_phase2_evidence.ansible_recap.changed | int == 0
+      - data_services_phase2_evidence.facts.packages.docker_engine.installed == docker.engine_version
+      - data_services_phase2_evidence.facts.packages.compose_plugin.installed == docker.compose_plugin_version
+    fail_msg: Phase 3 requires passing, clean Phase 2 evidence with the configured Docker versions.
+
+- name: Inspect pending reboot state
+  ansible.builtin.stat:
+    path: /var/run/reboot-required
+  register: data_services_reboot_required
+  check_mode: false
+
+- name: Collect installed package facts
+  ansible.builtin.package_facts:
+    manager: auto
+
+- name: Inspect native data-service units
+  ansible.builtin.command:
+    argv: [systemctl, list-unit-files, --no-legend, mariadb.service, mysql.service, redis-server.service, redis.service]
+  register: data_services_native_units
+  check_mode: false
+  changed_when: false
+  failed_when: false
+
+- name: Inspect Docker containers without exposing configuration
+  ansible.builtin.command:
+    argv: [docker, ps, --all, --format, "{{ '{{.Names}}' }}"]
+  register: data_services_existing_containers
+  check_mode: false
+  changed_when: false
+  no_log: true
+
+- name: Inspect primary data directories and ownership markers
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    follow: false
+  loop:
+    - "{{ data_services.mariadb.data_path }}"
+    - "{{ data_services.redis.data_path }}"
+  register: data_services_primary_paths
+
+- name: Probe primary data directory contents
+  ansible.builtin.command:
+    argv: [find, "{{ item.item }}", -mindepth, "1", -maxdepth, "1", "!", -name, .mokla-managed, -print, -quit]
+  loop: "{{ data_services_primary_paths.results }}"
+  when: item.stat.exists and item.stat.isdir
+  register: data_services_primary_contents
+  check_mode: false
+  changed_when: false
+
+- name: Inspect primary data ownership markers
+  ansible.builtin.stat:
+    path: "{{ item }}/.mokla-managed"
+    follow: false
+  loop:
+    - "{{ data_services.mariadb.data_path }}"
+    - "{{ data_services.redis.data_path }}"
+  register: data_services_primary_markers
+
+- name: Refuse unsafe Phase 3 adoption
+  ansible.builtin.assert:
+    that:
+      - not data_services_reboot_required.stat.exists
+      - "'mariadb-server' not in ansible_facts.packages"
+      - "'mysql-server' not in ansible_facts.packages"
+      - "'redis-server' not in ansible_facts.packages"
+      - data_services_native_units.stdout | trim == ''
+      - data_services_existing_containers.stdout_lines | difference([data_services_project_name ~ '-mariadb-1', data_services_project_name ~ '-redis-1']) | length == 0
+      - data_services_primary_paths.results | selectattr('stat.exists') | rejectattr('stat.isdir') | list | length == 0
+      - data_services_primary_paths.results | selectattr('stat.exists') | selectattr('stat.islnk') | list | length == 0
+      - data_services_primary_contents.results | default([]) | selectattr('stdout', 'defined') | selectattr('stdout') | list | length == 0 or data_services_primary_markers.results | selectattr('stat.exists') | list | length == 2
+    fail_msg: Existing native services, unmanaged containers, pending reboot, or unmarked data require explicit operator disposition before Phase 3.

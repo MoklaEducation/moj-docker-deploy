@@ -47,6 +47,37 @@ class PlatformSchemaTests(unittest.TestCase):
             del platform["docker"][field]
             self.assertTrue(list(VALIDATOR.iter_errors(platform)), field)
 
+    def test_phase_3_data_service_fields_are_required(self):
+        required_fields = {
+            "data_services": ("bind_address", "allowed_client_cidrs", "tls", "mariadb", "redis"),
+            "mariadb": (
+                "image", "compatibility_rationale", "image_scan", "port", "character_set", "collation", "data_path", "config_path",
+                "backup_timeout_seconds", "health_timeout_seconds", "memory_limit", "cpus",
+            ),
+            "redis": (
+                "image", "compatibility_rationale", "image_scan", "port", "authentication_enabled", "data_policy", "data_path", "config_path",
+                "maxmemory", "maxmemory_policy", "health_timeout_seconds", "memory_limit", "cpus",
+            ),
+        }
+        for section, fields in required_fields.items():
+            for field in fields:
+                with self.subTest(section=section, field=field):
+                    platform = copy.deepcopy(PLATFORM)
+                    target = platform["data_services"] if section == "data_services" else platform["data_services"][section]
+                    del target[field]
+                    self.assertTrue(list(VALIDATOR.iter_errors(platform)), field)
+
+    def test_phase_3_backup_fields_are_required(self):
+        for field in (
+            "restic_repository", "repository_credential_secret_keys", "staging_path", "schedule",
+            "randomized_delay_seconds", "retention", "minimum_expected_frequency_hours",
+            "minimum_free_space_mb", "restore",
+        ):
+            with self.subTest(field=field):
+                platform = copy.deepcopy(PLATFORM)
+                del platform["backup"][field]
+                self.assertTrue(list(VALIDATOR.iter_errors(platform)), field)
+
     def test_unsafe_phase_2_values_are_rejected(self):
         invalid_values = (
             (("host", "storage_root"), "relative/path"),
@@ -58,6 +89,23 @@ class PlatformSchemaTests(unittest.TestCase):
             (("docker", "engine_version"), "REPLACE_WITH_REVIEWED_VERSION"),
             (("docker", "compose_plugin_version"), "REPLACE_WITH_REVIEWED_VERSION"),
             (("docker", "log_max_files"), 0),
+        )
+        for path, value in invalid_values:
+            with self.subTest(path=path):
+                self.assert_invalid(path, value)
+
+    def test_structurally_invalid_phase_3_values_are_rejected(self):
+        invalid_values = (
+            (("data_services", "mariadb", "port"), 0),
+            (("data_services", "mariadb", "data_path"), "relative/path"),
+            (("data_services", "mariadb", "memory_limit"), "unbounded"),
+            (("data_services", "redis", "data_policy"), "best-effort"),
+            (("data_services", "redis", "maxmemory"), 0),
+            (("data_services", "redis", "maxmemory_policy"), "unknown"),
+            (("backup", "repository_credential_secret_keys"), []),
+            (("backup", "retention", "daily"), 0),
+            (("backup", "restore", "target_root"), "relative/path"),
+            (("backup", "restore", "redis_port"), 70000),
         )
         for path, value in invalid_values:
             with self.subTest(path=path):

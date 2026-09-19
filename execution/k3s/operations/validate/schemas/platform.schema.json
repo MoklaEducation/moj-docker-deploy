@@ -61,12 +61,109 @@
         "log_max_files": {"type": "integer", "minimum": 1}
       }
     },
-    "data_services": {"$ref": "#/$defs/non_empty_object"},
-    "backup": {"$ref": "#/$defs/non_empty_object"},
+    "data_services": {
+      "type": "object", "additionalProperties": false,
+      "required": ["bind_address", "allowed_client_cidrs", "tls", "mariadb", "redis"],
+      "properties": {
+        "bind_address": {"type": "string", "format": "ipv4"},
+        "allowed_client_cidrs": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
+        "tls": {
+          "type": "object", "additionalProperties": false,
+          "required": ["enabled", "minimum_version", "server_certificate_secret_key", "server_private_key_secret_key", "ca_certificate_secret_key", "renewal_owner"],
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "minimum_version": {"type": "string", "enum": ["TLSv1.2", "TLSv1.3"]},
+            "server_certificate_secret_key": {"type": "string", "minLength": 1},
+            "server_private_key_secret_key": {"type": "string", "minLength": 1},
+            "ca_certificate_secret_key": {"type": "string", "minLength": 1},
+            "renewal_owner": {"type": "string", "minLength": 1}
+          }
+        },
+        "mariadb": {
+          "type": "object", "additionalProperties": false,
+          "required": ["image", "compatibility_rationale", "image_scan", "port", "character_set", "collation", "data_path", "config_path", "backup_timeout_seconds", "health_timeout_seconds", "memory_limit", "cpus"],
+          "properties": {
+            "image": {"type": "string", "minLength": 1},
+            "compatibility_rationale": {"type": "string", "minLength": 1},
+            "image_scan": {"$ref": "#/$defs/image_scan"},
+            "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+            "character_set": {"type": "string", "minLength": 1},
+            "collation": {"type": "string", "minLength": 1},
+            "data_path": {"$ref": "#/$defs/absolute_path"},
+            "config_path": {"$ref": "#/$defs/absolute_path"},
+            "backup_timeout_seconds": {"type": "integer", "minimum": 1},
+            "health_timeout_seconds": {"type": "integer", "minimum": 1},
+            "memory_limit": {"$ref": "#/$defs/memory_size"},
+            "cpus": {"type": "number", "exclusiveMinimum": 0}
+          }
+        },
+        "redis": {
+          "type": "object", "additionalProperties": false,
+          "required": ["image", "compatibility_rationale", "image_scan", "port", "authentication_enabled", "data_policy", "data_path", "config_path", "maxmemory", "maxmemory_policy", "health_timeout_seconds", "memory_limit", "cpus"],
+          "properties": {
+            "image": {"type": "string", "minLength": 1},
+            "compatibility_rationale": {"type": "string", "minLength": 1},
+            "image_scan": {"$ref": "#/$defs/image_scan"},
+            "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+            "authentication_enabled": {"type": "boolean"},
+            "data_policy": {"type": "string", "enum": ["persistent", "disposable"]},
+            "data_path": {"$ref": "#/$defs/absolute_path"},
+            "config_path": {"$ref": "#/$defs/absolute_path"},
+            "maxmemory": {"type": "integer", "minimum": 1},
+            "maxmemory_policy": {"type": "string", "enum": ["noeviction", "allkeys-lru", "allkeys-lfu", "allkeys-random", "volatile-lru", "volatile-lfu", "volatile-random", "volatile-ttl"]},
+            "health_timeout_seconds": {"type": "integer", "minimum": 1},
+            "memory_limit": {"$ref": "#/$defs/memory_size"},
+            "cpus": {"type": "number", "exclusiveMinimum": 0}
+          }
+        }
+      }
+    },
+    "backup": {
+      "type": "object", "additionalProperties": false,
+      "required": ["restic_repository", "repository_credential_secret_keys", "staging_path", "schedule", "randomized_delay_seconds", "retention", "minimum_expected_frequency_hours", "minimum_free_space_mb", "restore"],
+      "properties": {
+        "restic_repository": {"type": "string", "minLength": 1},
+        "repository_credential_secret_keys": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"}},
+        "staging_path": {"$ref": "#/$defs/absolute_path"},
+        "schedule": {"type": "string", "minLength": 1},
+        "randomized_delay_seconds": {"type": "integer", "minimum": 0},
+        "retention": {
+          "type": "object", "additionalProperties": false,
+          "required": ["daily", "weekly", "monthly"],
+          "properties": {
+            "daily": {"type": "integer", "minimum": 1},
+            "weekly": {"type": "integer", "minimum": 1},
+            "monthly": {"type": "integer", "minimum": 1}
+          }
+        },
+        "minimum_expected_frequency_hours": {"type": "integer", "minimum": 1},
+        "minimum_free_space_mb": {"type": "integer", "minimum": 1},
+        "restore": {
+          "type": "object", "additionalProperties": false,
+          "required": ["target_root", "bind_address", "mariadb_port", "redis_port"],
+          "properties": {
+            "target_root": {"$ref": "#/$defs/absolute_path"},
+            "bind_address": {"type": "string", "format": "ipv4"},
+            "mariadb_port": {"type": "integer", "minimum": 1, "maximum": 65535},
+            "redis_port": {"type": "integer", "minimum": 1, "maximum": 65535}
+          }
+        }
+      }
+    },
     "k3s": {"type": "object", "required": ["version"], "properties": {"version": {"type": "string", "minLength": 1}}, "additionalProperties": true}
   },
   "$defs": {
     "absolute_path": {"type": "string", "pattern": "^/(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+"},
-    "non_empty_object": {"type": "object", "minProperties": 1}
+    "image_scan": {
+      "type": "object", "additionalProperties": false,
+      "required": ["scanner", "scanned_at", "findings", "approved_by"],
+      "properties": {
+        "scanner": {"type": "string", "minLength": 1},
+        "scanned_at": {"type": "string", "format": "date"},
+        "findings": {"type": "string", "minLength": 1},
+        "approved_by": {"type": "string", "minLength": 1}
+      }
+    },
+    "memory_size": {"type": "string", "pattern": "^[1-9][0-9]*[kKmMgG]$"}
   }
 }

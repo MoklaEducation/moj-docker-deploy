@@ -1,0 +1,27 @@
+---
+- name: Validate Phase 3 preconditions
+  ansible.builtin.import_tasks: validate.yml
+
+- name: Render and validate service definitions offline
+  ansible.builtin.import_tasks: render.yml
+
+- name: Create separated service filesystems
+  ansible.builtin.import_tasks: filesystem.yml
+
+- name: Deliver root-only runtime secrets
+  ansible.builtin.import_tasks: secrets.yml
+
+- name: Install data-service configuration
+  ansible.builtin.import_tasks: compose.yml
+
+- name: Configure narrow data-service firewall rules
+  ansible.builtin.import_tasks: firewall.yml
+
+- name: Install the systemd lifecycle
+  ansible.builtin.import_tasks: systemd.yml
+
+- name: Install backup and restore operations
+  ansible.builtin.import_tasks: backup.yml
+
+- name: Verify data-service health and desired state
+  ansible.builtin.import_tasks: verify.yml

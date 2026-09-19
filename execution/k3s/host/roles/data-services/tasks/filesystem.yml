@@ -1,0 +1,44 @@
+---
+- name: Create Phase 3 configuration and secret roots
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - {path: "{{ host.config_root }}/data-services", mode: "0750"}
+    - {path: "{{ data_services.mariadb.config_path }}", mode: "0750"}
+    - {path: "{{ data_services.redis.config_path }}", mode: "0750"}
+    - {path: "{{ host.config_root }}/secrets", mode: "0700"}
+    - {path: "{{ data_services_secret_root }}", mode: "0700"}
+    - {path: "{{ data_services_runtime_secret_root }}", mode: "0700"}
+    - {path: "{{ data_services_backup_secret_root }}", mode: "0700"}
+    - {path: "{{ backup.staging_path }}", mode: "0700"}
+    - {path: "{{ backup.restore.target_root }}", mode: "0700"}
+  when: not ansible_check_mode
+
+- name: Create separated primary data directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+  loop:
+    - "{{ data_services.mariadb.data_path }}"
+    - "{{ data_services.redis.data_path }}"
+  when: not ansible_check_mode
+
+- name: Mark Phase 3-owned primary data directories
+  ansible.builtin.copy:
+    content: "managed-by=mokla-phase-3\nenvironment={{ environment_name }}\n"
+    dest: "{{ item }}/.mokla-managed"
+    owner: root
+    group: root
+    mode: "0600"
+    force: false
+  loop:
+    - "{{ data_services.mariadb.data_path }}"
+    - "{{ data_services.redis.data_path }}"
+  when: not ansible_check_mode

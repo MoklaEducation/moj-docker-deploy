@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+[[ "$EUID" -eq 0 ]] || { echo "error: restore qualification must run as root" >&2; exit 1; }
+[[ "${1:-}" == "--environment" && "${2:-}" == "{{ environment_name }}" && "${3:-}" == "--snapshot" && -n "${4:-}" && "${5:-}" == "--target" && -n "${6:-}" && $# -eq 6 ]] || {
+  echo "error: expected --environment {{ environment_name }} --snapshot ID --target ISOLATED_PATH" >&2
+  exit 2
+}
+snapshot="$4"
+target="$(realpath -m "$6")"
+restore_root={{ backup.restore.target_root | quote }}
+primary_mariadb={{ data_services.mariadb.data_path | quote }}
+primary_redis={{ data_services.redis.data_path | quote }}
+[[ "$snapshot" =~ ^[0-9a-f]+$ ]] || { echo "error: invalid snapshot ID" >&2; exit 2; }
+[[ "$target" == "$restore_root"/* && "$target" != "$restore_root" && "$target" != "$primary_mariadb" && "$target" != "$primary_redis" ]] || {
+  echo "error: restore target is not isolated" >&2
+  exit 2
+}
+if [[ -e "$target" && -n "$(find "$target" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
+  echo "error: restore target must be absent or empty" >&2
+  exit 2
+fi
+
+exec 9>/run/lock/mokla-data-restore.lock
+flock --nonblock 9 || { echo "error: another restore qualification is running" >&2; exit 1; }
+project={{ data_services_project_name | quote }}
+suffix="$(printf '%s' "$target" | sha256sum | cut -c1-12)"
+mariadb_container="mokla-restore-mariadb-$suffix"
+redis_container="mokla-restore-redis-$suffix"
+created_target=false
+
+cleanup() {
+  docker rm --force "$mariadb_container" "$redis_container" >/dev/null 2>&1 || true
+  if [[ "$created_target" == true && -f "$target/.mokla-isolated-restore" && "$target" == "$restore_root"/* ]]; then
+    rm -rf -- "$target"
+  fi
+}
+trap cleanup EXIT
+
+for service in mariadb redis; do
+  [[ "$(docker inspect --format '{{ '{{.State.Health.Status}}' }}' "$project-$service-1")" == healthy ]] || { echo "error: primary $service is not healthy" >&2; exit 1; }
+done
+
+mkdir -p "$target/artifacts" "$target/mariadb" "$target/redis"
+printf 'environment={{ environment_name }}\nsnapshot=%s\n' "$snapshot" >"$target/.mokla-isolated-restore"
+created_target=true
+
+RUNTIME_SECRET_ROOT={{ data_services_runtime_secret_root | quote }}
+BACKUP_SECRET_ROOT={{ data_services_backup_secret_root | quote }}
+export RESTIC_REPOSITORY={{ backup.restic_repository | quote }}
+export RESTIC_PASSWORD_FILE="$BACKUP_SECRET_ROOT/restic_password"
+{% for key in backup.repository_credential_secret_keys %}
+{{ key | regex_replace('^restic_', '') | upper }}="$(<"$BACKUP_SECRET_ROOT/{{ key }}")"
+export {{ key | regex_replace('^restic_', '') | upper }}
+{% endfor %}
+restic restore "$snapshot" --target "$target/artifacts"
+manifest="$(find "$target/artifacts" -name checksums.sha256 -type f -print -quit)"
+[[ -n "$manifest" ]] || { echo "error: restored checksum manifest is missing" >&2; exit 1; }
+artifact_root="$(dirname "$manifest")"
+(cd "$artifact_root" && sha256sum --check checksums.sha256)
+grep -Fxq 'environment={{ environment_name }}' "$artifact_root/metadata.txt" || { echo "error: restored environment marker does not match" >&2; exit 1; }
+
+docker run --detach --name "$mariadb_container" --network host \
+  --mount "type=bind,src=$target/mariadb,dst=/var/lib/mysql" \
+  --mount "type=bind,src=$RUNTIME_SECRET_ROOT/mariadb-root-password,dst=/run/secrets/mariadb-root-password,readonly" \
+  --mount "type=bind,src=$RUNTIME_SECRET_ROOT/mariadb-health.cnf,dst=/run/secrets/mariadb-health.cnf,readonly" \
+  --env MARIADB_ROOT_PASSWORD_FILE=/run/secrets/mariadb-root-password \
+  {{ data_services.mariadb.image | quote }} \
+  --bind-address={{ backup.restore.bind_address }} --port={{ backup.restore.mariadb_port }} --skip-ssl
+for attempt in $(seq 1 60); do
+  docker exec "$mariadb_container" mariadb-admin --defaults-extra-file=/run/secrets/mariadb-health.cnf \
+    --host={{ backup.restore.bind_address }} --port={{ backup.restore.mariadb_port }} --ssl=0 ping >/dev/null 2>&1 && break
+  (( attempt < 60 )) || { echo "error: isolated MariaDB did not become healthy" >&2; exit 1; }
+  sleep 2
+done
+gzip -dc "$artifact_root/mariadb.sql.gz" | docker exec -i "$mariadb_container" mariadb \
+  --defaults-extra-file=/run/secrets/mariadb-health.cnf --host={{ backup.restore.bind_address }} --port={{ backup.restore.mariadb_port }} --ssl=0
+docker exec "$mariadb_container" mariadb --defaults-extra-file=/run/secrets/mariadb-health.cnf \
+  --host={{ backup.restore.bind_address }} --port={{ backup.restore.mariadb_port }} --ssl=0 --batch --skip-column-names --execute 'SELECT 1' | grep -qx 1
+probe_database="$(sed -n 's/^database=//p' "$artifact_root/restore-marker.txt")"
+expected_marker="$(sed -n 's/^value=//p' "$artifact_root/restore-marker.txt")"
+[[ "$probe_database" =~ ^mokla_restore_probe_[0-9a-f]{16}$ && "$expected_marker" =~ ^[0-9a-f]{64}$ ]] || { echo "error: restored marker metadata is invalid" >&2; exit 1; }
+restored_marker="$(docker exec "$mariadb_container" mariadb --defaults-extra-file=/run/secrets/mariadb-health.cnf \
+  --host={{ backup.restore.bind_address }} --port={{ backup.restore.mariadb_port }} --ssl=0 --batch --skip-column-names \
+  --execute "SELECT value FROM \`$probe_database\`.marker")"
+[[ "$restored_marker" == "$expected_marker" ]] || { echo "error: restored MariaDB marker does not match" >&2; exit 1; }
+
+redis_hash="$(tr -d '\n' <"$RUNTIME_SECRET_ROOT/redis-password" | sha256sum | cut -d' ' -f1)"
+printf 'user default on #%s ~* &* +@all\n' "$redis_hash" >"$target/redis/users.acl"
+chmod 0600 "$target/redis/users.acl"
+{% if data_services.redis.data_policy == 'persistent' %}
+cp "$artifact_root/redis.rdb" "$target/redis/dump.rdb"
+{% endif %}
+docker run --detach --name "$redis_container" --network host \
+  --mount "type=bind,src=$target/redis,dst=/data" \
+  --mount "type=bind,src=$RUNTIME_SECRET_ROOT/redis-password,dst=/run/secrets/redis-password,readonly" \
+  {{ data_services.redis.image | quote }} redis-server \
+  --bind {{ backup.restore.bind_address }} --port {{ backup.restore.redis_port }} --protected-mode yes --aclfile /data/users.acl \
+{% if data_services.redis.data_policy == 'persistent' %}
+  --dir /data --dbfilename dump.rdb
+{% else %}
+  --save '' --appendonly no
+{% endif %}
+for attempt in $(seq 1 30); do
+  docker exec "$redis_container" sh -eu -c 'REDISCLI_AUTH="$(cat /run/secrets/redis-password)"; export REDISCLI_AUTH; redis-cli -h {{ backup.restore.bind_address }} -p {{ backup.restore.redis_port }} ping' | grep -qx PONG && break
+  (( attempt < 30 )) || { echo "error: isolated Redis did not become healthy" >&2; exit 1; }
+  sleep 2
+done
+{% if data_services.redis.data_policy == 'disposable' %}
+[[ "$(docker exec "$redis_container" sh -eu -c 'REDISCLI_AUTH="$(cat /run/secrets/redis-password)"; export REDISCLI_AUTH; redis-cli -h {{ backup.restore.bind_address }} -p {{ backup.restore.redis_port }} DBSIZE')" == 0 ]]
+{% endif %}
+
+for service in mariadb redis; do
+  [[ "$(docker inspect --format '{{ '{{.State.Health.Status}}' }}' "$project-$service-1")" == healthy ]]
+done
+docker rm --force "$mariadb_container" "$redis_container" >/dev/null
+! docker inspect "$mariadb_container" "$redis_container" >/dev/null 2>&1
+[[ -f "$target/.mokla-isolated-restore" && "$target" == "$restore_root"/* ]]
+rm -rf -- "$target"
+created_target=false
+printf 'restore_snapshot=%s status=pass\n' "$snapshot"

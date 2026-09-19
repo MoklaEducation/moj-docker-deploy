@@ -1,0 +1,12 @@
+---
+- name: Allow MariaDB and Redis only from reviewed client networks
+  community.general.ufw:
+    rule: allow
+    direction: in
+    proto: tcp
+    from_ip: "{{ item.0 }}"
+    to_ip: "{{ data_services.bind_address }}"
+    to_port: "{{ item.1 }}"
+    comment: mokla private data service
+  loop: "{{ data_services.allowed_client_cidrs | product([data_services.mariadb.port, data_services.redis.port]) | list }}"
+  when: not ansible_check_mode

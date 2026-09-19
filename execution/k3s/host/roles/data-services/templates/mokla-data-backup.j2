@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+[[ "$EUID" -eq 0 ]] || { echo "error: backup must run as root" >&2; exit 1; }
+[[ "${1:-}" == "--environment" && "${2:-}" == "{{ environment_name }}" && $# -eq 2 ]] || { echo "error: expected --environment {{ environment_name }}" >&2; exit 2; }
+
+STAGING_ROOT={{ backup.staging_path | quote }}
+STATUS_FILE={{ (host.evidence_root ~ '/phase-3-backup-status.json') | quote }}
+RUNTIME_SECRET_ROOT={{ data_services_runtime_secret_root | quote }}
+BACKUP_SECRET_ROOT={{ data_services_backup_secret_root | quote }}
+PROJECT={{ data_services_project_name | quote }}
+RUN_DIR=""
+RESULT_FILE=""
+SUCCESS=false
+PROBE_CREATED=false
+PROBE_DATABASE=""
+
+cleanup() {
+  if [[ "$PROBE_CREATED" == true ]]; then
+    docker exec "$PROJECT-mariadb-1" mariadb --defaults-extra-file=/run/secrets/mariadb-health.cnf \
+      --execute "DROP DATABASE IF EXISTS \`$PROBE_DATABASE\`" >/dev/null 2>&1 || true
+  fi
+  if [[ "$SUCCESS" != true ]]; then
+    printf '{"schema_version":"1","environment":"%s","completed_at":"%s","status":"fail"}\n' \
+      '{{ environment_name }}' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$STATUS_FILE"
+    chmod 0600 "$STATUS_FILE"
+  fi
+  if [[ -n "$RUN_DIR" && "$RUN_DIR" == "$STAGING_ROOT"/* ]]; then
+    rm -rf -- "$RUN_DIR"
+  fi
+  [[ -z "$RESULT_FILE" ]] || rm -f -- "$RESULT_FILE"
+}
+trap cleanup EXIT
+
+exec 9>/run/lock/mokla-data-backup.lock
+flock --nonblock 9 || { echo "error: another data-service backup is running" >&2; exit 1; }
+
+export RESTIC_REPOSITORY={{ backup.restic_repository | quote }}
+export RESTIC_PASSWORD_FILE="$BACKUP_SECRET_ROOT/restic_password"
+{% for key in backup.repository_credential_secret_keys %}
+{{ key | regex_replace('^restic_', '') | upper }}="$(<"$BACKUP_SECRET_ROOT/{{ key }}")"
+export {{ key | regex_replace('^restic_', '') | upper }}
+{% endfor %}
+
+available_mb="$(df --output=avail -m "$STAGING_ROOT" | tail -n 1 | tr -d ' ')"
+(( available_mb >= {{ backup.minimum_free_space_mb }} )) || { echo "error: insufficient backup staging capacity" >&2; exit 1; }
+for service in mariadb redis; do
+  [[ "$(docker inspect --format '{{ '{{.State.Health.Status}}' }}' "$PROJECT-$service-1")" == healthy ]] || { echo "error: $service is not healthy" >&2; exit 1; }
+done
+
+RUN_DIR="$(mktemp -d "$STAGING_ROOT/backup.XXXXXXXX")"
+RESULT_FILE="$(mktemp "$STAGING_ROOT/restic-result.XXXXXXXX")"
+probe_marker="$(openssl rand -hex 32)"
+PROBE_DATABASE="mokla_restore_probe_$(openssl rand -hex 8)"
+docker exec "$PROJECT-mariadb-1" mariadb --defaults-extra-file=/run/secrets/mariadb-health.cnf \
+  --execute "CREATE DATABASE \`$PROBE_DATABASE\`; CREATE TABLE \`$PROBE_DATABASE\`.marker (value CHAR(64) NOT NULL); INSERT INTO \`$PROBE_DATABASE\`.marker VALUES ('$probe_marker')"
+PROBE_CREATED=true
+printf 'database=%s\nvalue=%s\n' "$PROBE_DATABASE" "$probe_marker" >"$RUN_DIR/restore-marker.txt"
+docker exec "$PROJECT-mariadb-1" mariadb-dump \
+  --defaults-extra-file=/run/secrets/mariadb-health.cnf \
+  --all-databases --single-transaction --routines --events --triggers --hex-blob --quick \
+  | gzip -9 >"$RUN_DIR/mariadb.sql.gz"
+docker exec "$PROJECT-mariadb-1" mariadb --defaults-extra-file=/run/secrets/mariadb-health.cnf \
+  --execute "DROP DATABASE \`$PROBE_DATABASE\`"
+PROBE_CREATED=false
+
+{% if data_services.redis.data_policy == 'persistent' %}
+docker exec "$PROJECT-redis-1" sh -eu -c \
+  'REDISCLI_AUTH="$(cat /run/secrets/redis-password)"; export REDISCLI_AUTH; redis-cli --tls --cacert /run/secrets/ca.crt -h {{ data_services.bind_address }} -p {{ data_services.redis.port }} BGSAVE >/dev/null'
+for attempt in $(seq 1 60); do
+  [[ ! -f {{ data_services.redis.data_path | quote }}/temp-*.rdb ]] && break
+  (( attempt < 60 )) || { echo "error: Redis snapshot did not finish" >&2; exit 1; }
+  sleep 2
+done
+cp --reflink=auto {{ (data_services.redis.data_path ~ '/dump.rdb') | quote }} "$RUN_DIR/redis.rdb"
+{% else %}
+printf '%s\n' 'redis_data_policy=disposable' >"$RUN_DIR/redis-policy.txt"
+{% endif %}
+
+cp {{ (data_services.mariadb.config_path ~ '/mariadb.cnf') | quote }} "$RUN_DIR/mariadb.cnf"
+cp {{ (data_services.redis.config_path ~ '/redis.conf') | quote }} "$RUN_DIR/redis.conf"
+mariadb_version="$(docker exec "$PROJECT-mariadb-1" mariadb --version | tr -d '\n')"
+printf '%s\n' \
+  'environment={{ environment_name }}' \
+  'created_at='"$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  'mariadb_image={{ data_services.mariadb.image }}' \
+  'redis_image={{ data_services.redis.image }}' \
+  'mariadb_version='"$mariadb_version" \
+  'mariadb_dump_options=all-databases,single-transaction,routines,events,triggers,hex-blob,quick' \
+  >"$RUN_DIR/metadata.txt"
+(cd "$RUN_DIR" && sha256sum mariadb.sql.gz mariadb.cnf redis.conf metadata.txt restore-marker.txt{% if data_services.redis.data_policy == 'persistent' %} redis.rdb{% else %} redis-policy.txt{% endif %} >checksums.sha256)
+
+restic backup --json --tag mokla-data-services --tag "environment={{ environment_name }}" "$RUN_DIR" >"$RESULT_FILE"
+snapshot_id="$(/usr/local/libexec/mokla-restic-snapshot-id "$RESULT_FILE")"
+restic snapshots --json "$snapshot_id" >/dev/null
+restic check
+restic forget --keep-daily {{ backup.retention.daily }} --keep-weekly {{ backup.retention.weekly }} --keep-monthly {{ backup.retention.monthly }} --prune
+
+printf '{"schema_version":"1","environment":"%s","snapshot_id":"%s","completed_at":"%s","status":"pass"}\n' \
+  '{{ environment_name }}' "$snapshot_id" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$STATUS_FILE"
+chmod 0600 "$STATUS_FILE"
+SUCCESS=true
+printf 'snapshot=%s\n' "$snapshot_id"

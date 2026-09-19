@@ -38,10 +38,56 @@ docker:
   log_max_files: 5
 data_services:
   bind_address: 127.0.0.1
-  mariadb: {port: 3306}
-  redis: {port: 6379, data_policy: disposable}
+  allowed_client_cidrs: [10.42.0.0/16, 192.168.1.0/24]
+  tls:
+    enabled: true
+    minimum_version: TLSv1.2
+    server_certificate_secret_key: data_services_tls_certificate
+    server_private_key_secret_key: data_services_tls_private_key
+    ca_certificate_secret_key: data_services_ca_certificate
+    renewal_owner: REPLACE_WITH_CERTIFICATE_RENEWAL_OWNER
+  mariadb:
+    image: REPLACE_WITH_REVIEWED_MARIADB_TAG_AND_DIGEST
+    compatibility_rationale: REPLACE_WITH_COMPATIBILITY_RATIONALE
+    image_scan: {scanner: REPLACE_WITH_SCANNER, scanned_at: "2026-09-19", findings: REPLACE_WITH_FINDINGS, approved_by: REPLACE_WITH_APPROVER}
+    port: 3306
+    character_set: utf8mb4
+    collation: utf8mb4_unicode_ci
+    data_path: /srv/mokla/data-services/mariadb/data
+    config_path: /etc/mokla/data-services/mariadb
+    backup_timeout_seconds: 1800
+    health_timeout_seconds: 120
+    memory_limit: 1G
+    cpus: 1.0
+  redis:
+    image: REPLACE_WITH_REVIEWED_REDIS_TAG_AND_DIGEST
+    compatibility_rationale: REPLACE_WITH_COMPATIBILITY_RATIONALE
+    image_scan: {scanner: REPLACE_WITH_SCANNER, scanned_at: "2026-09-19", findings: REPLACE_WITH_FINDINGS, approved_by: REPLACE_WITH_APPROVER}
+    port: 6379
+    authentication_enabled: true
+    data_policy: disposable
+    data_path: /srv/mokla/data-services/redis/data
+    config_path: /etc/mokla/data-services/redis
+    maxmemory: 268435456
+    maxmemory_policy: allkeys-lru
+    health_timeout_seconds: 60
+    memory_limit: 384M
+    cpus: 0.5
 backup:
   restic_repository: s3:https://backup.example.invalid/mokla-test
+  repository_credential_secret_keys:
+    - restic_aws_access_key_id
+    - restic_aws_secret_access_key
   staging_path: /srv/mokla/backup-staging
+  schedule: "*-*-* 03:15:00 UTC"
+  randomized_delay_seconds: 900
+  retention: {daily: 7, weekly: 4, monthly: 6}
+  minimum_expected_frequency_hours: 26
+  minimum_free_space_mb: 2048
+  restore:
+    target_root: /srv/mokla/restore-tests
+    bind_address: 127.0.0.1
+    mariadb_port: 13306
+    redis_port: 16379
 k3s:
   version: REPLACE_WITH_REVIEWED_VERSION

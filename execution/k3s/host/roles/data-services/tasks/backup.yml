@@ -1,0 +1,58 @@
+---
+- name: Create the local operation helper directory
+  ansible.builtin.file:
+    path: /usr/local/libexec
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: not ansible_check_mode
+
+- name: Install Phase 3 backup and restore scripts
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "0750"
+  loop:
+    - {src: mokla-data-backup.j2, dest: /usr/local/sbin/mokla-data-backup}
+    - {src: mokla-data-backup-verify.j2, dest: /usr/local/sbin/mokla-data-backup-verify}
+    - {src: mokla-data-restore-test.j2, dest: /usr/local/sbin/mokla-data-restore-test}
+    - {src: restic-snapshot-id.py.j2, dest: /usr/local/libexec/mokla-restic-snapshot-id}
+  when: not ansible_check_mode
+
+- name: Install restic credential files
+  ansible.builtin.copy:
+    content: "{{ lookup('ansible.builtin.vars', item) }}\n"
+    dest: "{{ data_services_backup_secret_root }}/{{ item }}"
+    owner: root
+    group: root
+    mode: "0600"
+  loop: "{{ ['restic_password'] + backup.repository_credential_secret_keys }}"
+  when: not ansible_check_mode
+  no_log: true
+
+- name: Install backup systemd units
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "/etc/systemd/system/{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - {src: mokla-data-backup.service.j2, dest: mokla-data-backup.service}
+    - {src: mokla-data-backup.timer.j2, dest: mokla-data-backup.timer}
+  when: not ansible_check_mode
+  notify: Reload systemd for data services
+
+- name: Reload systemd before enabling backup timer
+  ansible.builtin.meta: flush_handlers
+  when: not ansible_check_mode
+
+- name: Enable the data backup timer
+  ansible.builtin.systemd_service:
+    name: mokla-data-backup.timer
+    enabled: true
+    state: started
+  when: not ansible_check_mode

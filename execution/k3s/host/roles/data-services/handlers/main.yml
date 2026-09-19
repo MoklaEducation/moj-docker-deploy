@@ -1,0 +1,10 @@
+---
+- name: Reload systemd for data services
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
+- name: Restart data services
+  ansible.builtin.systemd_service:
+    name: "{{ data_services_unit_name }}"
+    state: restarted
+  when: not ansible_check_mode
