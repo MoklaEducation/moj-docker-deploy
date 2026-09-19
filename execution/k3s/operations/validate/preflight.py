@@ -6,6 +6,7 @@ import datetime as dt
 import ipaddress
 import json
 import pathlib
+import shutil
 import socket
 import subprocess
 import sys
@@ -83,24 +84,30 @@ def check_inventory(inventory, report):
 
 
 def check_controller_commands(connection_mode, report):
-    required = ["bash", "python3", "ansible-playbook", "ansible-galaxy"]
+    required = ["bash", "python3", "ansible-playbook", "ansible-galaxy", "ip"]
     if connection_mode == "ssh":
         required.append("ssh")
-    for command in required:
-        result = subprocess.run(["bash", "-lc", f"command -v {command}"], capture_output=True, text=True)
-        report.add(f"controller.command.{command}", "pass" if result.returncode == 0 else "fail", result.stdout.strip() or "not found", f"Install {command} on the controller.")
-    for command in ("sops", "age"):
-        result = subprocess.run(["bash", "-lc", f"command -v {command}"], capture_output=True, text=True)
-        report.add(f"controller.command.{command}", "pass" if result.returncode == 0 else "fail", result.stdout.strip() or "not found", f"Install {command}; secrets must remain encrypted.")
+    commands = {}
+    for command in required + ["sops", "age"]:
+        path = shutil.which(command)
+        commands[command] = path
+        remediation = f"Install {command} on the controller."
+        if command in ("sops", "age"):
+            remediation = f"Install {command}; secrets must remain encrypted."
+        report.add(f"controller.command.{command}", "pass" if path else "fail", path or "not found", remediation)
+    return commands
 
 
-def check_collections(requirements_path, report):
+def check_collections(requirements_path, report, ansible_galaxy):
     try:
         requirements = yaml.safe_load(requirements_path.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError) as exc:
         report.add("controller.collections.pinned", "fail", f"could not read requirements: {type(exc).__name__}", "Restore host/requirements.yml.")
         return
-    result = subprocess.run(["ansible-galaxy", "collection", "list", "--format", "json"], capture_output=True, text=True, check=False)
+    if not ansible_galaxy:
+        report.add("controller.collections.pinned", "fail", "not checked because ansible-galaxy is unavailable", "Install ansible-core and the pinned collections from host/requirements.yml.")
+        return
+    result = subprocess.run([ansible_galaxy, "collection", "list", "--format", "json"], capture_output=True, text=True, check=False)
     if result.returncode != 0:
         report.add("controller.collections.pinned", "fail", "ansible-galaxy could not list installed collections", "Install the pinned collections from host/requirements.yml.")
         return
@@ -130,7 +137,7 @@ def check_collections(requirements_path, report):
         report.add("controller.collections.pinned", "pass", "all required collections match pinned versions", "")
 
 
-def check_secrets(environment_dir, report):
+def check_secrets(environment_dir, report, sops_command):
     secret_path = environment_dir / "secrets.sops.yml"
     if not secret_path.is_file():
         report.add("secrets.encrypted", "fail", "missing secrets.sops.yml", "Create an encrypted SOPS file; do not commit plaintext secrets.")
@@ -142,7 +149,10 @@ def check_secrets(environment_dir, report):
     if not encrypted:
         return
 
-    decrypted = subprocess.run(["sops", "--decrypt", str(secret_path)], capture_output=True, text=True, check=False)
+    if not sops_command:
+        report.add("secrets.decryptable", "fail", "not checked because sops is unavailable", "Install SOPS and provide the matching age identity.")
+        return
+    decrypted = subprocess.run([sops_command, "--decrypt", str(secret_path)], capture_output=True, text=True, check=False)
     if decrypted.returncode != 0:
         report.add("secrets.decryptable", "fail", "SOPS could not decrypt the environment secret file", "Provide the matching age identity to SOPS.")
         return
@@ -169,8 +179,10 @@ def check_secrets(environment_dir, report):
         report.add("secrets.required_keys", "pass", "all required secret keys are present", "")
 
 
-def local_ipv4_networks():
-    result = subprocess.run(["ip", "-4", "-o", "addr", "show"], capture_output=True, text=True, check=False)
+def local_ipv4_networks(ip_command):
+    if not ip_command:
+        return [], "ip is unavailable"
+    result = subprocess.run([ip_command, "-4", "-o", "addr", "show"], capture_output=True, text=True, check=False)
     if result.returncode != 0:
         return [], "ip could not list local IPv4 addresses"
     networks = []
@@ -184,14 +196,16 @@ def local_ipv4_networks():
     return networks, ""
 
 
-def local_ipv4_routes():
-    result = subprocess.run(["ip", "-4", "route", "show"], capture_output=True, text=True, check=False)
+def local_ipv4_routes(ip_command):
+    if not ip_command:
+        return [], "ip is unavailable"
+    result = subprocess.run([ip_command, "-4", "route", "show"], capture_output=True, text=True, check=False)
     if result.returncode != 0:
         return [], "ip could not list local IPv4 routes"
     return [line.strip() for line in result.stdout.splitlines() if line.strip()], ""
 
 
-def check_network(platform, report):
+def check_network(platform, report, ip_command):
     network = platform.get("network", {}) if isinstance(platform, dict) else {}
     try:
         host_address = ipaddress.ip_address(platform["host_address"])
@@ -208,7 +222,7 @@ def check_network(platform, report):
     else:
         report.add("network.cidr.no_overlap", "pass", "pod and service CIDRs do not overlap", "")
 
-    local_interfaces, error = local_ipv4_networks()
+    local_interfaces, error = local_ipv4_networks(ip_command)
     if error:
         report.add("network.interfaces.readable", "fail", error, "Install iproute2 and ensure local interface facts are readable.")
         return
@@ -219,7 +233,7 @@ def check_network(platform, report):
         "pod_cidr": str(pod_network),
         "service_cidr": str(service_network),
     }
-    routes, route_error = local_ipv4_routes()
+    routes, route_error = local_ipv4_routes(ip_command)
     if route_error:
         report.add("network.routes.readable", "fail", route_error, "Install iproute2 and ensure local route facts are readable.")
     else:
@@ -317,12 +331,12 @@ def main():
         report.add("target_connection.mode.valid", "fail", "target_connection.mode must be local or ssh", "Set target_connection.mode to local for the current single-machine workflow.")
     if inventory is not None:
         check_inventory(inventory, report)
+    commands = check_controller_commands(connection_mode, report)
     if platform is not None:
-        check_network(platform, report)
-    check_controller_commands(connection_mode, report)
-    check_collections(args.environment_dir.parent.parent / "host" / "requirements.yml", report)
+        check_network(platform, report, commands["ip"])
+    check_collections(args.environment_dir.parent.parent / "host" / "requirements.yml", report, commands["ansible-galaxy"])
 
-    check_secrets(args.environment_dir, report)
+    check_secrets(args.environment_dir, report, commands["sops"])
     return report.write(args, connection_mode, repository_state(args.repository))
 
 

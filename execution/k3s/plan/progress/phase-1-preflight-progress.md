@@ -2,13 +2,30 @@
 
 Status: local gate passing; hardening and coverage still in progress
 
-Last updated: 2026-09-18
+Last updated: 2026-09-19
 
 This document is the working progress record for Phase 1. Update it as implementation
 and validation advance. The normative requirements remain in
 [phase-1-preflight.md](../phase-1-preflight.md).
 
-## Current Direction
+## Status Snapshot
+
+- Public command: `./execution/k3s/bootstrap.sh check --environment test`
+- Latest result: exit `0`, 24 controller checks passed, remote checks passed, and
+  Ansible reported `localhost: ok=16`.
+- Supported local test hosts: Ubuntu 24.04 or 26.04 on `x86_64` with `systemd`.
+- Connection mode: local Ansible connection to `localhost`.
+- Mutation policy: Phase 1 preflight is read-only.
+- Evidence: `execution/k3s/.evidence/test/phase-1-preflight.json`.
+- Completion state: the local gate passes; schema depth, structured Ansible evidence,
+  negative fixtures, and disposable-machine coverage remain incomplete.
+
+The implementation now accepts Ubuntu 24.04 and 26.04 for the test environment. The
+normative Phase 1 and later phase plans still describe Ubuntu 24.04 as the fixed baseline;
+that documentation difference must be resolved before treating 26.04 as a production
+support commitment.
+
+## Operating Model
 
 The initial implementation is local-first. The machine running the command is also the
 single target machine. Remote SSH execution remains an extension point for later, after
@@ -23,8 +40,8 @@ operator command
 ```
 
 The target remains one explicitly selected Ubuntu `x86_64` machine with `systemd`. The
-current local environment declares Ubuntu 26.04; this is an explicit compatibility
-decision for this machine and must be revisited before deploying to a different target.
+current local environment supports Ubuntu 24.04 and 26.04; this compatibility list must
+be revisited before deploying to a different target.
 A single machine may eventually run Docker-managed MariaDB and Redis alongside a
 single-server k3s installation.
 
@@ -72,7 +89,7 @@ single-server k3s installation.
 - Later destructive operations such as restore, rebuild, and upgrade must remain
   explicit commands rather than side effects of ordinary convergence.
 
-## Implemented Files
+## Implementation Inventory
 
 The current Phase 1 controller surface is:
 
@@ -91,13 +108,24 @@ execution/k3s/
     playbooks/preflight.yml                    # read-only host inspection
   operations/validate/
     preflight.py                                # controller validation and report creation
+    test_preflight.py                           # missing-command regression tests
     update_report.py                            # report update after Ansible execution
     compare_reports.py                          # stable repeatability comparison
     schemas/platform.schema.json                # platform contract
   operations/setup/
     controller.sh                               # explicit controller check/install helper
     controller_validate.py                      # standalone pinned dependency checker
+    test_controller_validate.py                 # dependency-selection regression tests
     controller-requirements.txt                 # pinned Python controller dependencies
+```
+
+Generated local state is ignored by Git:
+
+```text
+execution/k3s/.controller-venv/                 # pinned local controller environment
+execution/k3s/.evidence/                        # generated reports
+execution/k3s/environments/*/age-identity*      # private age identities
+execution/k3s/environments/*/secrets.sops.yml   # encrypted environment secrets
 ```
 
 ### Public wrapper
@@ -147,7 +175,127 @@ transient evidence:
   --second execution/k3s/.evidence/test-second/phase-1-preflight.json
 ```
 
-## Current Validation Commands
+## Clean-Machine Runbook
+
+Run these commands as a non-root operator with `sudo` access from a fresh repository
+checkout. The target and controller are the same machine in the current local workflow.
+
+### 1. Enter the repository
+
+```bash
+cd /path/to/moj-docker-deploy
+```
+
+### 2. Install and verify controller prerequisites
+
+```bash
+./execution/k3s/operations/setup/controller.sh install
+./execution/k3s/operations/setup/controller.sh check
+```
+
+The explicit `install` action:
+
+- acquires a nonblocking lock so only one setup process runs;
+- creates the ignored `.controller-venv` only when absent;
+- invokes pip only when pinned Python packages do not match;
+- installs `age` through apt only when absent;
+- installs SOPS 3.9.4 only when a matching installation is unavailable, verifies its
+  SHA-256 checksum, and atomically moves it into the local controller environment;
+- installs only missing or mismatched pinned Ansible collections;
+- cleans temporary files and validates the complete result before returning success.
+
+### 3. Review environment inputs
+
+```bash
+cp -n execution/k3s/environments/test/inventory.yml.example \
+  execution/k3s/environments/test/inventory.yml
+cp -n execution/k3s/environments/test/platform.yml.example \
+  execution/k3s/environments/test/platform.yml
+```
+
+Review `inventory.yml` and `platform.yml` before continuing. The committed test files may
+already exist, in which case `cp -n` leaves them unchanged.
+
+### 4. Create an age identity
+
+```bash
+umask 077
+IDENTITY="$PWD/execution/k3s/environments/test/age-identity.txt"
+age-keygen -o "$IDENTITY"
+RECIPIENT="$(age-keygen -y "$IDENTITY")"
+export SOPS_AGE_KEY_FILE="$IDENTITY"
+```
+
+The `age1...` recipient is public and encrypts data. The identity file contains the
+private key and must remain private. A recipient cannot recreate its private identity.
+
+### 5. Create and encrypt environment secrets
+
+Create a temporary file outside the repository-managed environment directory:
+
+```bash
+PLAINTEXT="$(mktemp)"
+chmod 0600 "$PLAINTEXT"
+${EDITOR:-vi} "$PLAINTEXT"
+```
+
+Populate exactly these keys. Test placeholders satisfy Phase 1 presence checks, but real
+TLS PEM material is required before Phase 3:
+
+```yaml
+mariadb_root_password: REPLACE_FOR_THIS_ENVIRONMENT
+redis_password: REPLACE_FOR_THIS_ENVIRONMENT
+restic_password: REPLACE_FOR_THIS_ENVIRONMENT
+data_services_tls_certificate: TEST_ONLY_REPLACE_BEFORE_PHASE_3
+data_services_tls_private_key: TEST_ONLY_REPLACE_BEFORE_PHASE_3
+data_services_ca_certificate: TEST_ONLY_REPLACE_BEFORE_PHASE_3
+k3s_token_policy: generate_during_phase_4
+```
+
+Do not put the `age1...` recipient or age private identity inside this YAML document.
+Encrypt it and immediately remove the plaintext file:
+
+```bash
+SOPS="$PWD/execution/k3s/.controller-venv/bin/sops"
+"$SOPS" --encrypt \
+  --age "$RECIPIENT" \
+  --output execution/k3s/environments/test/secrets.sops.yml \
+  "$PLAINTEXT"
+rm -f "$PLAINTEXT"
+"$SOPS" --decrypt execution/k3s/environments/test/secrets.sops.yml >/dev/null
+```
+
+### 6. Run the public preflight
+
+```bash
+export SOPS_AGE_KEY_FILE="$PWD/execution/k3s/environments/test/age-identity.txt"
+./execution/k3s/bootstrap.sh check --environment test
+```
+
+Expected result:
+
+```text
+Phase 1 preflight: pass
+localhost : ok=16
+```
+
+The exact Ansible recap spacing may differ. The command must exit `0`, and the evidence
+report must show `overall_status: pass` and `remote_checks: pass`.
+
+### 7. Prove repeatability
+
+```bash
+REPORT="execution/k3s/.evidence/test/phase-1-preflight.json"
+cp "$REPORT" /tmp/phase-1-preflight-first.json
+./execution/k3s/bootstrap.sh check --environment test
+cp "$REPORT" /tmp/phase-1-preflight-second.json
+./execution/k3s/operations/validate/compare_reports.py \
+  --first /tmp/phase-1-preflight-first.json \
+  --second /tmp/phase-1-preflight-second.json
+rm -f /tmp/phase-1-preflight-first.json /tmp/phase-1-preflight-second.json
+```
+
+## Developer Validation
 
 Check the wrapper interface:
 
@@ -159,9 +307,15 @@ Validate the standalone scripts:
 
 ```bash
 python3 -m py_compile \
+  execution/k3s/operations/setup/controller_validate.py \
   execution/k3s/operations/validate/preflight.py \
   execution/k3s/operations/validate/update_report.py
-bash -n execution/k3s/bootstrap.sh
+python3 -m unittest \
+  execution/k3s/operations/setup/test_controller_validate.py \
+  execution/k3s/operations/validate/test_preflight.py
+bash -n \
+  execution/k3s/bootstrap.sh \
+  execution/k3s/operations/setup/controller.sh
 ```
 
 Validate the platform schema and localhost inventory:
@@ -202,25 +356,8 @@ ANSIBLE_CONFIG=execution/k3s/host/ansible.cfg \
   -e platform_file=execution/k3s/environments/test/platform.yml
 ```
 
-Run the local preflight:
-
-```bash
-./execution/k3s/bootstrap.sh check --environment test
-```
-
-The current test environment has verified SOPS/age tooling and an encrypted local
-`secrets.sops.yml`; the command passes the controller and local Ansible checks.
-
-Set up or verify the controller separately:
-
-```bash
-./execution/k3s/operations/setup/controller.sh check
-./execution/k3s/operations/setup/controller.sh install
-```
-
-`install` installs `age` through apt and the pinned Ansible collections. It does not
-download SOPS or alter Python dependencies automatically; those require an explicit,
-verified controller installation decision.
+The public preflight and repeatability commands are defined in the clean-machine runbook
+and should be run after these focused checks.
 
 ## Evidence
 
@@ -243,6 +380,20 @@ The report includes:
 
 Evidence is ignored by Git. Secret values, decrypted files, age identities, and
 kubeconfigs are also covered by ignore rules.
+
+## Issues Encountered and Resolved
+
+| Issue | Cause | Resolution |
+| --- | --- | --- |
+| Missing `ansible-galaxy` produced a Python traceback | Preflight recorded command absence but invoked the executable unconditionally afterward. | Command discovery now returns resolved paths; dependent collection, SOPS, and network checks fail as named report checks without raising. |
+| A fresh machine lacked pinned Python, Ansible, age, SOPS, and collections | The setup helper originally assumed parts of its own toolchain already existed. | Setup now creates an ignored local virtual environment and installs each prerequisite independently only when needed. |
+| Repeated SOPS setup attempts exhausted disk space | Concurrent or interrupted setup runs created many complete temporary downloads with no single-instance guard. | A nonblocking lock rejects concurrent runs; SOPS uses one cleaned staging file, verifies its pinned checksum, and moves atomically. |
+| SOPS decryption failed after encryption | `SOPS_AGE_KEY_FILE` was unset, pointed at the wrong repository-relative path, or did not match the encryption recipient. | The runbook derives the recipient from the private identity and exports the absolute identity path before encryption and preflight. |
+| Secret YAML failed to parse | Age recipient or identity text was appended to the YAML secret document. | The runbook separates plaintext secret keys, public recipient, private identity, and encrypted output. |
+| Preflight could not find `secrets.sops.yml` | Only the sanitized example existed. | The runbook now creates the ignored encrypted environment file explicitly and verifies decryption before preflight. |
+| Ubuntu 24.04 failed an exact Ubuntu 26.04 assertion | The test environment declared only one exact version despite the current host using 24.04. | The environment contract now explicitly supports 24.04 and 26.04 while continuing to reject unknown distributions and releases. |
+| Public ingress port checks failed while Docker workloads were running | Existing containers occupied ports 80 or 443. | Stop or reconfigure only the conflicting workload before preflight; Phase 1 does not stop services automatically. |
+| Generated Python caches appeared as untracked files | Repository ignore rules did not cover Python bytecode. | Repository-wide `__pycache__/` and `*.py[cod]` ignore rules were added. |
 
 ## Current Gaps
 
@@ -276,5 +427,6 @@ These gaps should be addressed before starting Phase 2 host mutation.
 | 2026-09-18 | Added explicit controller setup/check scripts and pinned Python controller requirements. | Standalone dependency validation and `controller.sh check` both passed. |
 | 2026-09-18 | Added route/hostname evidence and a standalone stable-report comparison tool. | Public local preflight passed; repeatability can be checked without comparing timestamps or transient evidence. |
 | 2026-09-18 | Ran the public local preflight twice and compared both saved reports. | 23 stable check outcomes matched; both runs passed with zero Ansible changes. |
+| 2026-09-19 | Hardened missing-command handling, added focused regression tests, made controller setup locked and independently idempotent, and allowed Ubuntu 24.04 or 26.04 explicitly. | Unit tests, compilation, schema validation, playbook syntax, and the public preflight passed; the report contains 24 passing checks and remote checks passed. |
 
 Add one row for each meaningful implementation or validation milestone.

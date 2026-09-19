@@ -27,10 +27,10 @@
     },
     "host": {
       "type": "object", "additionalProperties": true,
-      "required": ["os_distribution", "os_version", "storage_root", "minimum_cpu", "minimum_memory_mb", "minimum_root_free_gb"],
+      "required": ["os_distribution", "os_versions", "storage_root", "minimum_cpu", "minimum_memory_mb", "minimum_root_free_gb"],
       "properties": {
         "os_distribution": {"type": "string", "minLength": 1},
-        "os_version": {"type": "string", "minLength": 1},
+        "os_versions": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
         "storage_root": {"type": "string", "minLength": 1},
         "minimum_cpu": {"type": "integer", "minimum": 1},
         "minimum_memory_mb": {"type": "integer", "minimum": 1},

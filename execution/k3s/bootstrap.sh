@@ -7,6 +7,11 @@ ENVIRONMENTS_DIR="$SCRIPT_DIR/environments"
 SCHEMA="$SCRIPT_DIR/operations/validate/schemas/platform.schema.json"
 PREFLIGHT="$SCRIPT_DIR/operations/validate/preflight.py"
 UPDATE_REPORT="$SCRIPT_DIR/operations/validate/update_report.py"
+CONTROLLER_VENV="$SCRIPT_DIR/.controller-venv"
+
+if [[ -x "$CONTROLLER_VENV/bin/python3" ]]; then
+  export PATH="$CONTROLLER_VENV/bin:$PATH"
+fi
 
 usage() {
   cat <<'EOF'

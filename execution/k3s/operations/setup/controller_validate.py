@@ -13,9 +13,15 @@ import yaml
 
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--python-requirements", type=pathlib.Path, required=True)
-    parser.add_argument("--collection-requirements", type=pathlib.Path, required=True)
-    return parser.parse_args()
+    parser.add_argument("--python-requirements", type=pathlib.Path)
+    parser.add_argument("--collection-requirements", type=pathlib.Path)
+    parser.add_argument("--write-missing-collection-requirements", type=pathlib.Path)
+    args = parser.parse_args()
+    if args.python_requirements is None and args.collection_requirements is None:
+        parser.error("at least one requirements file is required")
+    if args.write_missing_collection_requirements is not None and args.collection_requirements is None:
+        parser.error("--write-missing-collection-requirements requires --collection-requirements")
+    return args
 
 
 def check_python_requirements(path):
@@ -34,18 +40,25 @@ def check_python_requirements(path):
     return failures
 
 
-def check_collections(path):
+def inspect_collections(path):
     requirements = yaml.safe_load(path.read_text(encoding="utf-8"))
-    result = subprocess.run(
-        ["ansible-galaxy", "collection", "list", "--format", "json"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        result = subprocess.run(
+            ["ansible-galaxy", "collection", "list", "--format", "json"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError as exc:
+        return [f"ansible-galaxy unavailable: {type(exc).__name__}"], None
     if result.returncode != 0:
-        return ["ansible-galaxy could not list installed collections"]
+        return ["ansible-galaxy could not list installed collections"], None
     installed = {}
-    for collection_root in json.loads(result.stdout).values():
+    try:
+        installed_locations = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return ["ansible-galaxy returned invalid JSON"], None
+    for collection_root in installed_locations.values():
         for name, metadata in collection_root.items():
             if name in installed:
                 continue
@@ -54,17 +67,32 @@ def check_collections(path):
             elif metadata:
                 installed[name] = metadata[0].get("version")
     failures = []
+    missing = []
     for requirement in requirements["collections"]:
         expected = str(requirement["version"])
         actual = installed.get(requirement["name"])
         if actual != expected:
             failures.append(f"{requirement['name']} expected {expected}, found {actual or 'missing'}")
-    return failures
+            missing.append(requirement)
+    return failures, missing
 
 
 def main():
     args = parse_args()
-    failures = check_python_requirements(args.python_requirements) + check_collections(args.collection_requirements)
+    failures = []
+    if args.python_requirements is not None:
+        failures.extend(check_python_requirements(args.python_requirements))
+    if args.collection_requirements is not None:
+        collection_failures, missing_collections = inspect_collections(args.collection_requirements)
+        if args.write_missing_collection_requirements is not None:
+            if missing_collections is None:
+                failures.extend(collection_failures)
+            else:
+                args.write_missing_collection_requirements.write_text(
+                    yaml.safe_dump({"collections": missing_collections}, sort_keys=False), encoding="utf-8"
+                )
+        else:
+            failures.extend(collection_failures)
     if failures:
         print("\n".join(failures), file=sys.stderr)
         return 1

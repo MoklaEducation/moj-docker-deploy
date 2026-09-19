@@ -12,7 +12,7 @@ network:
   outbound_https_endpoints: [https://download.docker.com/linux/ubuntu/]
 host:
   os_distribution: Ubuntu
-  os_version: "26.04"
+  os_versions: ["24.04", "26.04"]
   storage_root: /srv/mokla
   minimum_cpu: 4
   minimum_memory_mb: 4096
