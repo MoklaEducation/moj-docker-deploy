@@ -1,0 +1,11 @@
+---
+- name: Set the configured timezone
+  community.general.timezone:
+    name: "{{ host.timezone }}"
+
+- name: Enable chrony time synchronization
+  ansible.builtin.systemd_service:
+    name: chrony.service
+    enabled: true
+    state: started
+  when: not ansible_check_mode

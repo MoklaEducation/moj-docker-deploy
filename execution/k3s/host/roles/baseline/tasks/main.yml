@@ -1,0 +1,33 @@
+---
+- name: Run baseline safety checks before mutation
+  ansible.builtin.import_tasks: safety.yml
+
+- name: Configure baseline packages
+  ansible.builtin.import_tasks: packages.yml
+
+- name: Configure baseline storage
+  ansible.builtin.import_tasks: storage.yml
+
+- name: Harden administrative access
+  ansible.builtin.import_tasks: access.yml
+
+- name: Configure time synchronization
+  ansible.builtin.import_tasks: time.yml
+
+- name: Configure kernel prerequisites
+  ansible.builtin.import_tasks: kernel.yml
+
+- name: Configure swap policy
+  ansible.builtin.import_tasks: swap.yml
+
+- name: Configure the host firewall
+  ansible.builtin.import_tasks: firewall.yml
+
+- name: Configure bounded host logging
+  ansible.builtin.import_tasks: logging.yml
+
+- name: Configure pinned Docker Engine
+  ansible.builtin.import_tasks: docker.yml
+
+- name: Verify the converged baseline
+  ansible.builtin.import_tasks: verify.yml

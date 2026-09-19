@@ -4,7 +4,7 @@ target_connection:
 host_fqdn: localhost
 host_address: 127.0.0.1
 network:
-  administrative_cidrs: [127.0.0.0/8]
+  administrative_cidrs: [192.168.1.0/24]
   public_ingress_ports: [80, 443]
   pod_cidr: 10.42.0.0/16
   service_cidr: 10.43.0.0/16
@@ -14,14 +14,28 @@ host:
   os_distribution: Ubuntu
   os_versions: ["24.04", "26.04"]
   storage_root: /srv/mokla
+  config_root: /etc/mokla
+  state_root: /var/lib/mokla
+  evidence_root: /var/log/mokla
   minimum_cpu: 4
   minimum_memory_mb: 4096
   minimum_root_free_gb: 4
+  minimum_free_disk_percent: 20
   timezone: Etc/UTC
   automation_user: ubuntu
+  ssh_port: 22
+  disable_swap: true
+  allow_automatic_security_updates: true
+  allow_automatic_reboot: false
+  journald_max_use: 1G
 docker:
   apt_repository: https://download.docker.com/linux/ubuntu
-  engine_version: REPLACE_WITH_REVIEWED_VERSION
+  repository_key_fingerprint: 9DC858229FC7DD38854AE2D88D81803C0EBFCD88
+  engine_version: 5:29.6.1-1~ubuntu.24.04~noble
+  compose_plugin_version: 5.3.0-1~ubuntu.24.04~noble
+  data_root: /srv/mokla/docker
+  log_max_size: 20m
+  log_max_files: 5
 data_services:
   bind_address: 127.0.0.1
   mariadb: {port: 3306}

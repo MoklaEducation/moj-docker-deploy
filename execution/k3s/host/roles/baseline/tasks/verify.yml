@@ -1,0 +1,246 @@
+---
+- name: Refresh service facts after convergence
+  ansible.builtin.service_facts:
+
+- name: Inspect effective baseline state
+  block:
+    - name: Read time synchronization state
+      ansible.builtin.command: timedatectl show --property=NTPSynchronized --value
+      register: baseline_verify_ntp
+      check_mode: false
+      changed_when: false
+
+    - name: Read active swap state
+      ansible.builtin.command: swapon --show --noheadings
+      register: baseline_verify_swap
+      check_mode: false
+      changed_when: false
+
+    - name: Read UFW status
+      ansible.builtin.command: ufw status verbose
+      register: baseline_verify_ufw
+      check_mode: false
+      changed_when: false
+
+    - name: Read Docker state
+      ansible.builtin.command: docker info --format '{{ "{{json .}}" }}'
+      register: baseline_verify_docker
+      check_mode: false
+      changed_when: false
+
+    - name: Read Docker container count
+      ansible.builtin.command: docker ps --all --quiet
+      register: baseline_verify_containers
+      check_mode: false
+      changed_when: false
+      no_log: true
+
+    - name: Read held package selections
+      ansible.builtin.command: dpkg-query --show --showformat='{{ "${Package} ${Version} ${db:Status-Abbrev}\\n" }}' docker-ce docker-ce-cli docker-compose-plugin containerd.io
+      register: baseline_verify_packages
+      check_mode: false
+      changed_when: false
+
+    - name: Read held package names
+      ansible.builtin.command: apt-mark showhold
+      register: baseline_verify_holds
+      check_mode: false
+      changed_when: false
+
+    - name: Collect installed package facts
+      ansible.builtin.package_facts:
+        manager: auto
+
+    - name: Read Docker Engine candidate version
+      ansible.builtin.command: apt-cache policy docker-ce
+      register: baseline_verify_engine_policy
+      check_mode: false
+      changed_when: false
+
+    - name: Read Compose plugin candidate version
+      ansible.builtin.command: apt-cache policy docker-compose-plugin
+      register: baseline_verify_compose_policy
+      check_mode: false
+      changed_when: false
+
+    - name: Read effective SSH policy
+      ansible.builtin.command: sshd -T
+      register: baseline_verify_ssh
+      check_mode: false
+      changed_when: false
+
+    - name: Read effective kernel prerequisites
+      ansible.builtin.command:
+        argv: [sysctl, -n, net.ipv4.ip_forward, net.bridge.bridge-nf-call-iptables, net.bridge.bridge-nf-call-ip6tables]
+      register: baseline_verify_sysctls
+      check_mode: false
+      changed_when: false
+
+    - name: Inspect loaded kernel modules
+      ansible.builtin.stat:
+        path: "/sys/module/{{ item }}"
+      loop:
+        - overlay
+        - br_netfilter
+      register: baseline_verify_modules
+      check_mode: false
+
+    - name: Read Docker daemon configuration
+      ansible.builtin.command: cat /etc/docker/daemon.json
+      register: baseline_verify_docker_config
+      check_mode: false
+      changed_when: false
+      failed_when: false
+      no_log: true
+
+    - name: Read effective journald configuration
+      ansible.builtin.command: systemd-analyze cat-config systemd/journald.conf
+      register: baseline_verify_journald
+      check_mode: false
+      changed_when: false
+
+    - name: Inspect Docker socket ownership
+      ansible.builtin.stat:
+        path: /var/run/docker.sock
+      register: baseline_verify_docker_socket
+      check_mode: false
+
+    - name: Inspect reboot requirement
+      ansible.builtin.stat:
+        path: /var/run/reboot-required
+      register: baseline_reboot_file
+      check_mode: false
+
+    - name: Inspect managed storage roots
+      ansible.builtin.stat:
+        path: "{{ item.path }}"
+      loop:
+        - {path: "{{ host.storage_root }}", mode: "0750"}
+        - {path: "{{ host.config_root }}", mode: "0750"}
+        - {path: "{{ host.state_root }}", mode: "0750"}
+        - {path: "{{ host.evidence_root }}", mode: "0750"}
+        - {path: "{{ docker.data_root }}", mode: "0710"}
+      register: baseline_verify_roots
+      check_mode: false
+
+    - name: Verify effective host baseline
+      ansible.builtin.assert:
+        that:
+          - baseline_verify_ntp.stdout | trim == 'yes'
+          - baseline_verify_swap.stdout | trim == ''
+          - "baseline_verify_ufw.stdout is search('Status: active')"
+          - "baseline_verify_ufw.stdout is search('Default: deny \\(incoming\\), allow \\(outgoing\\), deny \\(routed\\)')"
+          - baseline_verify_ufw.stdout is search(host.ssh_port | string ~ '/tcp')
+          - baseline_verify_ufw.stdout is search('6443/tcp')
+          - not baseline_verify_ufw.stdout is search('3306/tcp')
+          - not baseline_verify_ufw.stdout is search('6379/tcp')
+          - (baseline_verify_docker.stdout | from_json).DockerRootDir == docker.data_root
+          - (baseline_verify_docker.stdout | from_json).Driver != ''
+          - (baseline_verify_docker.stdout | from_json).Swarm.LocalNodeState == 'inactive'
+          - baseline_verify_containers.stdout_lines | length == 0
+          - ansible_facts.services['docker.service'].state == 'running'
+          - ansible_facts.services['chrony.service'].state == 'running'
+          - baseline_verify_modules.results | rejectattr('stat.exists') | list | length == 0
+          - baseline_verify_roots.results | rejectattr('stat.exists') | list | length == 0
+          - baseline_verify_roots.results | rejectattr('stat.pw_name', 'equalto', 'root') | list | length == 0
+          - baseline_verify_roots.results | rejectattr('stat.gr_name', 'equalto', 'root') | list | length == 0
+          - baseline_verify_roots.results | map(attribute='stat.mode') | list == ['0750', '0750', '0750', '0750', '0710']
+          - baseline_verify_docker_socket.stat.pw_name == 'root'
+        fail_msg: "One or more effective Phase 2 baseline checks failed."
+      when: not ansible_check_mode
+
+- name: Write allow-listed host facts for controller evidence
+  ansible.builtin.copy:
+    content: "{{ baseline_evidence | to_nice_json }}\n"
+    dest: "{{ phase2_facts_path }}"
+    owner: "{{ lookup('pipe', 'id -un') }}"
+    group: "{{ lookup('pipe', 'id -gn') }}"
+    mode: "0600"
+  vars:
+    baseline_evidence:
+      reboot_required: "{{ baseline_reboot_file.stat.exists if baseline_reboot_file is defined else false }}"
+      packages:
+        docker_engine:
+          configured: "{{ docker.engine_version }}"
+          installed: "{{ ansible_facts.packages['docker-ce'][0].version }}"
+          candidate: "{{ baseline_verify_engine_policy.stdout_lines | select('match', '^\\s*Candidate:') | first | regex_replace('^\\s*Candidate:\\s*', '') }}"
+        compose_plugin:
+          configured: "{{ docker.compose_plugin_version }}"
+          installed: "{{ ansible_facts.packages['docker-compose-plugin'][0].version }}"
+          candidate: "{{ baseline_verify_compose_policy.stdout_lines | select('match', '^\\s*Candidate:') | first | regex_replace('^\\s*Candidate:\\s*', '') }}"
+        holds_requested: [containerd.io, docker-ce, docker-ce-cli, docker-compose-plugin]
+      services:
+        docker: "{{ ansible_facts.services.get('docker.service', {}).get('state', 'unavailable') }}"
+        chrony: "{{ ansible_facts.services.get('chrony.service', {}).get('state', 'unavailable') }}"
+      firewall:
+        owner: ufw
+        administrative_cidrs: "{{ network.administrative_cidrs }}"
+        public_ingress_ports: "{{ network.public_ingress_ports }}"
+      storage:
+        roots:
+          - {path: "{{ host.storage_root }}", owner: "{{ baseline_verify_roots.results[0].stat.pw_name }}", group: "{{ baseline_verify_roots.results[0].stat.gr_name }}", mode: "{{ baseline_verify_roots.results[0].stat.mode }}"}
+          - {path: "{{ host.config_root }}", owner: "{{ baseline_verify_roots.results[1].stat.pw_name }}", group: "{{ baseline_verify_roots.results[1].stat.gr_name }}", mode: "{{ baseline_verify_roots.results[1].stat.mode }}"}
+          - {path: "{{ host.state_root }}", owner: "{{ baseline_verify_roots.results[2].stat.pw_name }}", group: "{{ baseline_verify_roots.results[2].stat.gr_name }}", mode: "{{ baseline_verify_roots.results[2].stat.mode }}"}
+          - {path: "{{ host.evidence_root }}", owner: "{{ baseline_verify_roots.results[3].stat.pw_name }}", group: "{{ baseline_verify_roots.results[3].stat.gr_name }}", mode: "{{ baseline_verify_roots.results[3].stat.mode }}"}
+          - {path: "{{ docker.data_root }}", owner: "{{ baseline_verify_roots.results[4].stat.pw_name }}", group: "{{ baseline_verify_roots.results[4].stat.gr_name }}", mode: "{{ baseline_verify_roots.results[4].stat.mode }}"}
+      checks:
+        - id: host.os.phase2_supported
+          status: pass
+          evidence: Ubuntu 24.04 x86_64 with systemd
+          remediation: ""
+        - id: access.second_ssh.proven
+          status: pass
+          evidence: Public-key SSH and non-interactive sudo succeeded in a second connection
+          remediation: ""
+        - id: firewall.administrative_cidr.non_loopback
+          status: pass
+          evidence: A reviewed non-loopback administrative CIDR is configured
+          remediation: ""
+        - id: docker.preexisting_workloads.absent
+          status: pass
+          evidence: No existing containers require migration
+          remediation: ""
+        - id: packages.docker.pinned
+          status: "{{ 'pass' if ('docker-ce ' ~ docker.engine_version) in baseline_verify_packages.stdout and ('docker-compose-plugin ' ~ docker.compose_plugin_version) in baseline_verify_packages.stdout and ['containerd.io', 'docker-ce', 'docker-ce-cli', 'docker-compose-plugin'] | difference(baseline_verify_holds.stdout_lines) | length == 0 else 'fail' }}"
+          evidence: Configured Docker package versions and holds inspected
+          remediation: "Install and hold the exact configured Docker packages."
+        - id: access.ssh.hardened
+          status: "{{ 'pass' if ('passwordauthentication no' in baseline_verify_ssh.stdout and 'permitrootlogin no' in baseline_verify_ssh.stdout) else 'fail' }}"
+          evidence: Effective password and root SSH login policy inspected
+          remediation: "Apply the validated SSH drop-in after proving recovery access."
+        - id: time.synchronized
+          status: "{{ 'pass' if baseline_verify_ntp.stdout | trim == 'yes' else 'fail' }}"
+          evidence: Effective network time synchronization inspected
+          remediation: "Enable chrony and wait for synchronization."
+        - id: kernel.container_prerequisites
+          status: "{{ 'pass' if baseline_verify_sysctls.stdout_lines == ['1', '1', '1'] and baseline_verify_modules.results | rejectattr('stat.exists') | list | length == 0 else 'fail' }}"
+          evidence: Forwarding and bridge netfilter sysctls inspected
+          remediation: "Apply the managed modules and sysctl configuration."
+        - id: swap.disabled
+          status: "{{ 'pass' if baseline_verify_swap.stdout | trim == '' else 'fail' }}"
+          evidence: Active swap state inspected
+          remediation: "Disable active and persistent swap."
+        - id: firewall.ufw.active
+          status: "{{ 'pass' if (baseline_verify_ufw.stdout is search('Status: active') and baseline_verify_ufw.stdout is search('Default: deny \\(incoming\\), allow \\(outgoing\\), deny \\(routed\\)') and baseline_verify_ufw.stdout is search(host.ssh_port | string ~ '/tcp') and baseline_verify_ufw.stdout is search('6443/tcp') and not baseline_verify_ufw.stdout is search('3306/tcp') and not baseline_verify_ufw.stdout is search('6379/tcp')) else 'fail' }}"
+          evidence: UFW defaults and allowed ports inspected without exposing unrelated rules
+          remediation: "Apply reviewed allow rules before enabling UFW."
+        - id: logging.journald.bounded
+          status: "{{ 'pass' if ('SystemMaxUse=' ~ host.journald_max_use) in baseline_verify_journald.stdout else 'fail' }}"
+          evidence: Effective journald disk bound inspected
+          remediation: "Apply the managed persistent journald configuration."
+        - id: storage.roots.ready
+          status: "{{ 'pass' if (baseline_verify_roots.results | selectattr('stat.exists') | list | length == 5 and baseline_verify_roots.results | rejectattr('stat.pw_name', 'equalto', 'root') | list | length == 0 and baseline_verify_roots.results | rejectattr('stat.gr_name', 'equalto', 'root') | list | length == 0 and baseline_verify_roots.results | map(attribute='stat.mode') | list == ['0750', '0750', '0750', '0750', '0710']) else 'fail' }}"
+          evidence: Required host roots inspected for existence, root ownership, and restrictive modes
+          remediation: "Create the configured roots with root ownership and restrictive modes."
+        - id: docker.runtime.configured
+          status: "{{ 'pass' if ((baseline_verify_docker.stdout | from_json).DockerRootDir == docker.data_root and (baseline_verify_docker.stdout | from_json).LoggingDriver == 'json-file' and baseline_verify_docker_config.rc == 0 and (baseline_verify_docker_config.stdout | from_json)['log-opts']['max-size'] == docker.log_max_size and (baseline_verify_docker_config.stdout | from_json)['log-opts']['max-file'] == (docker.log_max_files | string) and baseline_verify_docker_socket.stat.pw_name == 'root') else 'fail' }}"
+          evidence: Docker data root, bounded json-file logging, and root-owned socket inspected
+          remediation: "Apply the validated Docker daemon configuration."
+        - id: docker.workloads.absent
+          status: "{{ 'pass' if baseline_verify_containers.stdout_lines | length == 0 and (baseline_verify_docker.stdout | from_json).Swarm.LocalNodeState == 'inactive' else 'fail' }}"
+          evidence: Docker container count and Swarm state inspected without exposing identifiers
+          remediation: "Remove unintended containers and leave Swarm before completing Phase 2."
+  delegate_to: localhost
+  become: false
+  check_mode: false
+  changed_when: false
