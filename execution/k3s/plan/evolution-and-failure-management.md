@@ -13,6 +13,9 @@ This guide applies to Phases 1-9 and to later upgrades. Phase documents describe
 intended behavior; implementation evidence determines whether those descriptions remain
 correct.
 
+[Strategy Visualizations](strategy-visualizations.md) provides a visual companion for
+the phase, capability, maturity, ownership, failure, and evidence relationships below.
+
 ## Core Principles
 
 1. Treat each plan as a versioned, testable hypothesis rather than an immutable design.
