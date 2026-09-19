@@ -16,6 +16,8 @@ automation and Kubernetes configuration. It does not define application workload
 Implementation discoveries and failure behavior are governed by
 [Evolution and Failure Management](evolution-and-failure-management.md). Use that guide
 to revise these plans without losing ownership boundaries, evidence, or repeatability.
+See [Strategy Visualizations](strategy-visualizations.md) for diagrams connecting phases,
+capabilities, maturity, failure routing, and evidence.
 
 ## Deployment Model
 
