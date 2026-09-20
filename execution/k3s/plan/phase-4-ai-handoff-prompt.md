@@ -55,6 +55,38 @@ Fixed topology
 - k3s state and local-path storage under dedicated `/srv/mokla/k3s` descendants, outside
   `/srv/mokla/docker` and `/srv/mokla/data-services`.
 
+Portability and replaceability boundary
+
+Keep every Phase 4 addition modular and self-contained so it can later move to a
+dedicated infrastructure repository or be replaced by another host-provisioning method.
+Ansible is the current implementation mechanism, not a contract that higher layers may
+depend on.
+
+- Keep k3s host installation, host firewall integration, kubeconfig retrieval, runtime
+  validation, and evidence generation in clearly owned Phase 4 modules. Do not scatter
+  k3s installation behavior through Phase 1-3 roles or future Phase 5+ resources.
+- Define narrow inputs and outputs. Inputs are the schema-backed environment contract and
+  passing prerequisite evidence. Outputs are a reachable Kubernetes API, protected
+  bootstrap kubeconfig, declared host paths and service state, and redacted Phase 4
+  evidence.
+- Phase 5 and later layers must consume the Kubernetes API/kubeconfig and documented
+  evidence contract only. They must not import Phase 4 role variables, task files,
+  handlers, templates, temporary paths, or assumptions about how the k3s binary was
+  installed.
+- Keep validation usable when installation is performed elsewhere. A future Packer-built
+  VM image, cloud image pipeline, or separate repository may preinstall the exact k3s
+  binary and host configuration; Phase 4 checks must still be able to validate and adopt
+  that explicitly declared state without requiring the local installer to rerun.
+- Separate image-build concerns from instance-convergence concerns. Immutable packages
+  and binaries may later move into Packer, while environment-specific identity, network
+  values, credentials, kubeconfig handling, health checks, and evidence remain explicit
+  instance-time contracts.
+- Do not introduce a large generic framework solely for hypothetical portability. Use
+  small cohesive files, stable structured contracts, and clean ownership boundaries that
+  can be extracted with minimal rewriting.
+- Document any unavoidable coupling in the Phase 4 progress file, including the exact
+  interface a replacement implementation must preserve.
+
 Current baseline to verify, not merely assume
 
 - Phases 1-3 have passing evidence for environment `test` on `192.168.1.151`.
@@ -202,7 +234,8 @@ Working method
 - Start from the existing schema/bootstrap boundary, add the smallest validation slice,
   run its focused tests, and then proceed incrementally.
 - Use Python for structured validation and report generation, Ansible for host desired
-  state, and shell only for orchestration.
+  state in the current implementation, and shell only for orchestration. Keep those
+  implementation choices behind the portability boundary above.
 - Reuse established Phase 1-3 conventions for evidence, redaction, check mode, temporary
   files, and tests.
 - Do not weaken or regress Phase 1-3 to make Phase 4 pass.

@@ -1,14 +1,14 @@
 environment_name: test
 target_connection:
   mode: local
-host_fqdn: localhost
+host_fqdn: bastion151
 host_address: 192.168.1.151
 network:
   administrative_cidrs: [192.168.1.0/24]
   public_ingress_ports: [80, 443]
   pod_cidr: 10.42.0.0/16
   service_cidr: 10.43.0.0/16
-  dns_names: [localhost, download.docker.com]
+  dns_names: [bastion151, download.docker.com]
   outbound_https_endpoints: [https://download.docker.com/linux/ubuntu/]
 host:
   os_distribution: Ubuntu
@@ -102,4 +102,16 @@ backup:
     mariadb_port: 13306
     redis_port: 16379
 k3s:
-  version: REPLACE_WITH_REVIEWED_VERSION
+  version: v1.36.3+k3s1
+  checksum: 2f98a9f8fe5782479ee2d54e70a1b10a7f6fd4cae8d38ed3098452dc6eed76b5
+  node_name: bastion151
+  node_ip: 192.168.1.151
+  api_bind_address: 192.168.1.151
+  tls_sans: [192.168.1.151, bastion151]
+  cluster_cidr: 10.42.0.0/16
+  service_cidr: 10.43.0.0/16
+  cluster_dns: 10.43.0.10
+  data_dir: /srv/mokla/k3s/server
+  local_storage_path: /srv/mokla/k3s/storage
+  kubeconfig_output: execution/k3s/environments/test/.generated/bootstrap-admin.kubeconfig
+  secrets_encryption: true

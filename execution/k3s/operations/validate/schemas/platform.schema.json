@@ -172,7 +172,25 @@
         "then": {"required": ["repository_mode", "local_repository_risk_accepted", "restic_repository", "repository_credential_secret_keys", "staging_path", "schedule", "randomized_delay_seconds", "retention", "minimum_expected_frequency_hours", "minimum_free_space_mb", "restore"]}
       }]
     },
-    "k3s": {"type": "object", "required": ["version"], "properties": {"version": {"type": "string", "minLength": 1}}, "additionalProperties": true}
+    "k3s": {
+      "type": "object", "additionalProperties": false,
+      "required": ["version", "checksum", "node_name", "node_ip", "api_bind_address", "tls_sans", "cluster_cidr", "service_cidr", "cluster_dns", "data_dir", "local_storage_path", "kubeconfig_output", "secrets_encryption"],
+      "properties": {
+        "version": {"type": "string", "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+\\+k3s[0-9]+$"},
+        "checksum": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "node_name": {"type": "string", "pattern": "^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$", "maxLength": 253},
+        "node_ip": {"type": "string", "format": "ipv4"},
+        "api_bind_address": {"type": "string", "format": "ipv4"},
+        "tls_sans": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "cluster_cidr": {"type": "string", "minLength": 1},
+        "service_cidr": {"type": "string", "minLength": 1},
+        "cluster_dns": {"type": "string", "format": "ipv4"},
+        "data_dir": {"$ref": "#/$defs/absolute_path"},
+        "local_storage_path": {"$ref": "#/$defs/absolute_path"},
+        "kubeconfig_output": {"type": "string", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+"},
+        "secrets_encryption": {"const": true}
+      }
+    }
   },
   "$defs": {
     "absolute_path": {"type": "string", "pattern": "^/(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+"},

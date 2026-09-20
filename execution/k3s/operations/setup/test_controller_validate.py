@@ -53,6 +53,29 @@ class MissingDependencyTests(unittest.TestCase):
         self.assertEqual(["outdated.collection", "missing.collection"], [item["name"] for item in missing])
         self.assertEqual(2, len(failures))
 
+    def test_scm_collection_uses_installed_identity_and_clean_install_requirement(self):
+        installed = {"/collections": {"k3s.orchestration": {"version": "1.2.1"}}}
+        result = types.SimpleNamespace(returncode=0, stdout=json.dumps(installed))
+
+        with tempfile.TemporaryDirectory() as directory:
+            requirements = pathlib.Path(directory) / "requirements.yml"
+            requirements.write_text(
+                "collections:\n"
+                "  - name: https://github.com/k3s-io/k3s-ansible.git\n"
+                "    type: git\n"
+                "    version: 1.2.2\n"
+                "    installed_name: k3s.orchestration\n",
+                encoding="utf-8",
+            )
+            with mock.patch.object(VALIDATE.subprocess, "run", return_value=result):
+                failures, missing = VALIDATE.inspect_collections(requirements)
+
+        self.assertEqual(["k3s.orchestration expected 1.2.2, found 1.2.1"], failures)
+        self.assertEqual(
+            [{"name": "https://github.com/k3s-io/k3s-ansible.git", "type": "git", "version": "1.2.2"}],
+            missing,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

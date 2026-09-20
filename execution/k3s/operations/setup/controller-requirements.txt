@@ -1,5 +1,6 @@
 PyYAML==6.0.3
 jsonschema==4.19.2
 ansible-core==2.21.3
+netaddr==1.3.0
 PyMySQL==1.1.2
 redis==5.2.1

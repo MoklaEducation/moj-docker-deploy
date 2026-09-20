@@ -1,0 +1,128 @@
+---
+- name: Refresh service facts
+  ansible.builtin.service_facts:
+
+- name: Inspect installed binary checksum
+  ansible.builtin.stat:
+    path: "{{ k3s_binary_path }}"
+    checksum_algorithm: sha256
+  register: k3s_binary
+  check_mode: false
+
+- name: Inspect protected k3s files and paths
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    follow: false
+  loop:
+    - "{{ k3s_config_path }}"
+    - "{{ k3s_identity_marker_path }}"
+    - "{{ k3s.data_dir }}/server/token"
+    - "{{ k3s.data_dir }}"
+    - "{{ k3s.local_storage_path }}"
+  register: k3s_protected_paths
+  check_mode: false
+
+- name: Read effective UFW rules
+  ansible.builtin.command:
+    argv: [ufw, status, verbose]
+  register: k3s_ufw
+  check_mode: false
+  changed_when: false
+
+- name: Read k3s secrets encryption status
+  ansible.builtin.command:
+    argv: ["{{ k3s_binary_path }}", secrets-encrypt, status, --data-dir, "{{ k3s.data_dir }}"]
+  when: k3s_binary.stat.exists
+  register: k3s_encryption_status
+  check_mode: false
+  changed_when: false
+  no_log: true
+
+- name: Read Docker data root
+  ansible.builtin.command:
+    argv: [docker, info, --format, "{{ '{{.DockerRootDir}}' }}"]
+  register: k3s_docker_root
+  check_mode: false
+  changed_when: false
+
+- name: Inspect healthy Phase 3 containers
+  ansible.builtin.command:
+    argv: [docker, ps, --filter, health=healthy, --format, "{{ '{{.Names}}' }}"]
+  register: k3s_healthy_docker_containers
+  check_mode: false
+  changed_when: false
+
+- name: Determine Phase 4 state
+  ansible.builtin.set_fact:
+    k3s_phase_state: "{{ 'installed' if k3s_binary.stat.exists else 'preinstall_ready' }}"
+    k3s_service_active: "{{ ansible_facts.services['k3s.service'].state == 'running' if ansible_facts.services['k3s.service'] is defined else false }}"
+    k3s_service_enabled: "{{ ansible_facts.services['k3s.service'].status == 'enabled' if ansible_facts.services['k3s.service'] is defined else false }}"
+
+- name: Require installed host state when present
+  ansible.builtin.assert:
+    that:
+      - k3s_binary.stat.checksum == k3s.checksum
+      - k3s_service_active
+      - k3s_service_enabled
+      - k3s_protected_paths.results[0].stat.mode == '0600'
+      - k3s_protected_paths.results[1].stat.mode == '0600'
+      - k3s_protected_paths.results[2].stat.mode == '0600'
+      - k3s_protected_paths.results[3].stat.isdir
+      - k3s_protected_paths.results[4].stat.isdir
+      - "'Encryption Status: Enabled' in k3s_encryption_status.stdout"
+      - k3s_docker_root.stdout | trim == docker.data_root
+      - docker.data_root != k3s.data_dir
+      - data_services.mariadb.data_path != k3s.data_dir
+      - data_services.redis.data_path != k3s.data_dir
+      - ('mokla-' ~ environment_name ~ '-mariadb-1') in k3s_healthy_docker_containers.stdout_lines
+      - ('mokla-' ~ environment_name ~ '-redis-1') in k3s_healthy_docker_containers.stdout_lines
+      - k3s_ufw.stdout is search('6443/tcp')
+      - k3s_ufw.stdout is search(k3s.cluster_cidr)
+      - not k3s_ufw.stdout is search('10250')
+      - not k3s_ufw.stdout is search('8472')
+    fail_msg: The installed k3s binary, service, or Phase 4 firewall state is not converged.
+  when: k3s_phase_state == 'installed'
+
+- name: Write allow-listed Phase 4 facts
+  ansible.builtin.copy:
+    content: "{{ k3s_evidence | to_nice_json }}\n"
+    dest: "{{ phase4_facts_path }}"
+    mode: "0600"
+  delegate_to: localhost
+  become: false
+  check_mode: false
+  changed_when: false
+  vars:
+    k3s_evidence:
+      role_version: "{{ k3s_role_version }}"
+      phase_state: "{{ k3s_phase_state }}"
+      version: "{{ k3s.version }}"
+      checksum: "{{ k3s.checksum }}"
+      config_hash: "{{ k3s_config_hash }}"
+      node_name: "{{ k3s.node_name }}"
+      node_ip: "{{ k3s.node_ip }}"
+      api_bind_address: "{{ k3s.api_bind_address }}"
+      cluster_cidr: "{{ k3s.cluster_cidr }}"
+      service_cidr: "{{ k3s.service_cidr }}"
+      data_dir: "{{ k3s.data_dir }}"
+      local_storage_path: "{{ k3s.local_storage_path }}"
+      service_active: "{{ k3s_service_active }}"
+      service_enabled: "{{ k3s_service_enabled }}"
+      docker_data_root: "{{ k3s_docker_root.stdout | trim }}"
+      checks:
+        - id: k3s.prerequisites.phase3
+          status: pass
+          evidence: Passing Phase 3 evidence was verified
+          remediation: ""
+        - id: k3s.adoption.safe
+          status: pass
+          evidence: Existing paths, listeners, and immutable identity passed adoption guards
+          remediation: ""
+        - id: k3s.configuration.rendered
+          status: pass
+          evidence: Explicit non-secret k3s configuration rendered successfully
+          remediation: ""
+        - id: k3s.runtime.installed
+          status: "{{ 'pass' if k3s_phase_state == 'installed' else 'pending' }}"
+          evidence: "{{ 'Exact binary and active enabled service verified' if k3s_phase_state == 'installed' else 'No k3s installation exists; apply is safe to begin' }}"
+          remediation: "{{ 'Run explicit apply through k3s-installation' if k3s_phase_state != 'installed' else '' }}"

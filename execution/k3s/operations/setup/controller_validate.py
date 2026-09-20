@@ -70,10 +70,11 @@ def inspect_collections(path):
     missing = []
     for requirement in requirements["collections"]:
         expected = str(requirement["version"])
-        actual = installed.get(requirement["name"])
+        installed_name = requirement.get("installed_name", requirement["name"])
+        actual = installed.get(installed_name)
         if actual != expected:
-            failures.append(f"{requirement['name']} expected {expected}, found {actual or 'missing'}")
-            missing.append(requirement)
+            failures.append(f"{installed_name} expected {expected}, found {actual or 'missing'}")
+            missing.append({key: value for key, value in requirement.items() if key != "installed_name"})
     return failures, missing
 
 

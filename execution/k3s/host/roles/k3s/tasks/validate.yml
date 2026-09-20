@@ -1,0 +1,127 @@
+---
+- name: Load Phase 3 controller evidence
+  ansible.builtin.set_fact:
+    k3s_phase3_evidence: "{{ lookup('ansible.builtin.file', phase3_report_path) | from_json }}"
+  no_log: true
+
+- name: Require passing Phase 3 evidence
+  ansible.builtin.assert:
+    that:
+      - k3s_phase3_evidence.phase == 'phase-3-host-data-services'
+      - k3s_phase3_evidence.environment == environment_name
+      - k3s_phase3_evidence.overall_status == 'pass'
+      - k3s_phase3_evidence.ansible_recap.failed | int == 0
+    fail_msg: Phase 4 requires passing Phase 3 evidence for the selected environment.
+
+- name: Render the proposed k3s configuration in memory
+  ansible.builtin.set_fact:
+    k3s_rendered_config: "{{ lookup('ansible.builtin.template', 'config.yaml.j2') }}"
+    k3s_immutable_identity:
+      version: "{{ k3s.version }}"
+      node_name: "{{ k3s.node_name }}"
+      node_ip: "{{ k3s.node_ip }}"
+      api_bind_address: "{{ k3s.api_bind_address }}"
+      cluster_cidr: "{{ k3s.cluster_cidr }}"
+      service_cidr: "{{ k3s.service_cidr }}"
+      data_dir: "{{ k3s.data_dir }}"
+      local_storage_path: "{{ k3s.local_storage_path }}"
+      secrets_encryption: "{{ k3s.secrets_encryption }}"
+
+- name: Calculate the non-secret configuration hash
+  ansible.builtin.set_fact:
+    k3s_config_hash: "{{ k3s_rendered_config | hash('sha256') }}"
+
+- name: Inspect pending reboot state
+  ansible.builtin.stat:
+    path: /var/run/reboot-required
+  register: k3s_reboot_required
+  check_mode: false
+
+- name: Inspect existing Phase 4 paths
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    follow: false
+  loop:
+    - /srv/mokla/k3s
+    - "{{ k3s.data_dir }}"
+    - "{{ k3s.local_storage_path }}"
+    - "{{ k3s_config_root }}"
+    - "{{ k3s_config_path }}"
+    - "{{ k3s_identity_marker_path }}"
+    - "{{ k3s_binary_path }}"
+    - "{{ k3s_service_path }}"
+  register: k3s_existing_paths
+
+- name: Inspect unmarked Phase 4 roots
+  ansible.builtin.command:
+    argv: [find, "{{ item }}", -mindepth, "1", -maxdepth, "1", "!", -name, "{{ k3s_managed_marker_name }}", -print, -quit]
+  loop:
+    - /srv/mokla/k3s
+    - "{{ k3s_config_root }}"
+  when: k3s_existing_paths.results | selectattr('item', 'equalto', item) | map(attribute='stat.exists') | first | default(false)
+  register: k3s_unmarked_contents
+  check_mode: false
+  changed_when: false
+
+- name: Inspect existing k3s version
+  ansible.builtin.command:
+    argv: ["{{ k3s_binary_path }}", --version]
+  when: k3s_existing_paths.results[6].stat.exists
+  register: k3s_existing_version
+  check_mode: false
+  changed_when: false
+  failed_when: false
+
+- name: Inspect existing k3s listeners
+  ansible.builtin.command:
+    argv: [ss, -H, -lntup]
+  register: k3s_existing_listeners
+  check_mode: false
+  changed_when: false
+
+- name: Load the immutable identity marker
+  ansible.builtin.slurp:
+    src: "{{ k3s_identity_marker_path }}"
+  when: k3s_existing_paths.results[5].stat.exists
+  register: k3s_identity_marker
+  no_log: true
+
+- name: Decode the immutable identity marker
+  ansible.builtin.set_fact:
+    k3s_existing_identity: "{{ k3s_identity_marker.content | b64decode | from_json }}"
+  when: k3s_identity_marker is not skipped
+  no_log: true
+
+- name: Require a safe first install or known managed state
+  ansible.builtin.assert:
+    that:
+      - not k3s_reboot_required.stat.exists
+      - k3s.node_ip in ansible_facts['all_ipv4_addresses']
+      - k3s.api_bind_address in ansible_facts['all_ipv4_addresses']
+      - k3s_existing_paths.results | rejectattr('stat.exists') | rejectattr('stat.islnk', 'undefined') | list | length >= 0
+      - k3s_existing_paths.results | selectattr('stat.exists') | selectattr('stat.islnk') | list | length == 0
+      - not k3s_existing_paths.results[6].stat.exists or k3s_existing_paths.results[5].stat.exists
+      - not k3s_existing_paths.results[7].stat.exists or k3s_existing_paths.results[5].stat.exists
+      - not k3s_existing_paths.results[4].stat.exists or k3s_existing_paths.results[5].stat.exists
+      - k3s_unmarked_contents.results | default([]) | selectattr('stdout', 'defined') | selectattr('stdout') | list | length == 0 or k3s_existing_paths.results[5].stat.exists
+      - "':6443 ' not in k3s_existing_listeners.stdout or k3s_existing_paths.results[5].stat.exists"
+    fail_msg: Existing unmanaged k3s artifacts, listeners, symlinks, non-empty roots, or a pending reboot require explicit operator disposition.
+
+- name: Require the installed release to match ordinary convergence
+  ansible.builtin.assert:
+    that:
+      - k3s_existing_version.rc == 0
+      - k3s.version in k3s_existing_version.stdout
+    fail_msg: The installed k3s version differs from the declared release; use a future explicit upgrade or rebuild workflow.
+  when: k3s_existing_paths.results[6].stat.exists
+
+- name: Require immutable cluster identity to match
+  ansible.builtin.assert:
+    that:
+      - k3s_existing_identity == k3s_immutable_identity
+    fail_msg: Immutable k3s identity, CIDR, or storage inputs changed; an explicit rebuild or migration is required.
+  when: k3s_existing_identity is defined
+
+- name: Record pre-install state
+  ansible.builtin.set_fact:
+    k3s_was_installed: "{{ k3s_existing_paths.results[6].stat.exists and k3s_existing_paths.results[5].stat.exists }}"

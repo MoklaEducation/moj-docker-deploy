@@ -12,6 +12,10 @@ DATA_SERVICES_CONFIG="$SCRIPT_DIR/operations/validate/data_services_config.py"
 DATA_SERVICES_SECRETS="$SCRIPT_DIR/operations/validate/data_services_secrets.py"
 DATA_SERVICES_RUNTIME="$SCRIPT_DIR/operations/validate/data_services_runtime.py"
 DATA_SERVICES_REPORT="$SCRIPT_DIR/operations/validate/data_services_report.py"
+K3S_CONFIG="$SCRIPT_DIR/operations/validate/k3s_config.py"
+K3S_KUBECONFIG="$SCRIPT_DIR/operations/validate/kubeconfig_contract.py"
+K3S_RUNTIME="$SCRIPT_DIR/operations/validate/k3s_runtime.py"
+K3S_REPORT="$SCRIPT_DIR/operations/validate/k3s_installation_report.py"
 CONTROLLER_VENV="$SCRIPT_DIR/.controller-venv"
 
 if [[ -x "$CONTROLLER_VENV/bin/python3" ]]; then
@@ -26,6 +30,8 @@ Usage:
   ./execution/k3s/bootstrap.sh apply --environment NAME --through host-baseline
   ./execution/k3s/bootstrap.sh check --environment NAME --through host-data-services
   ./execution/k3s/bootstrap.sh apply --environment NAME --through host-data-services
+  ./execution/k3s/bootstrap.sh check --environment NAME --through k3s-installation
+  ./execution/k3s/bootstrap.sh apply --environment NAME --through k3s-installation
 
 The check action is non-mutating. The apply action requires an explicit --through
 boundary and never reboots the host automatically.
@@ -55,7 +61,7 @@ done
 
 [[ "$action" == "check" || "$action" == "apply" ]] || die_usage "an action is required"
 [[ -n "$environment" ]] || die_usage "--environment is required"
-[[ -z "$through" || "$through" == "host-baseline" || "$through" == "host-data-services" ]] || die_usage "unsupported phase: $through"
+[[ -z "$through" || "$through" == "host-baseline" || "$through" == "host-data-services" || "$through" == "k3s-installation" ]] || die_usage "unsupported phase: $through"
 [[ "$action" != "apply" || -n "$through" ]] || die_usage "apply requires an explicit --through boundary"
 [[ "$EUID" -ne 0 ]] || { echo "error: do not run bootstrap as root" >&2; exit 1; }
 
@@ -193,4 +199,68 @@ fi
 if (( phase3_runtime_status != 0 )); then
   exit "$phase3_runtime_status"
 fi
-exit "$phase3_report_status"
+if (( phase3_report_status != 0 )) || [[ "$through" == "host-data-services" ]]; then
+  exit "$phase3_report_status"
+fi
+
+python3 "$K3S_CONFIG" --platform "$environment_dir/platform.yml" --repository "$REPO_DIR"
+
+phase4_report_path="$SCRIPT_DIR/.evidence/$environment/phase-4-k3s-installation.json"
+phase4_facts_path="$SCRIPT_DIR/.evidence/$environment/.phase-4-k3s-installation-facts.json"
+phase4_runtime_path="$SCRIPT_DIR/.evidence/$environment/.phase-4-runtime.json"
+phase4_output="$(mktemp)"
+trap 'rm -f "$phase2_output" "$phase2_facts_path" "$phase3_output" "$phase3_facts_path" "$phase3_runtime_path" "$phase3_secrets" "$phase4_output" "$phase4_facts_path" "$phase4_runtime_path"' EXIT
+rm -f "$phase4_facts_path" "$phase4_runtime_path"
+
+phase4_args=()
+if [[ "$action" == "check" ]]; then
+  phase4_args+=(--check --diff)
+fi
+
+set +e
+ansible-playbook \
+  -i "$environment_dir/inventory.yml" \
+  "$SCRIPT_DIR/host/playbooks/k3s-installation.yml" \
+  -e "platform_file=$environment_dir/platform.yml" \
+  -e "phase3_report_path=$phase3_report_path" \
+  -e "phase4_facts_path=$phase4_facts_path" \
+  -e "repository_dir=$REPO_DIR" \
+  -e "k3s_kubeconfig_tool=$K3S_KUBECONFIG" \
+  "${phase4_args[@]}" 2>&1 | tee "$phase4_output"
+phase4_status=${PIPESTATUS[0]}
+set -e
+
+phase4_runtime_status=1
+if (( phase4_status == 0 )); then
+  set +e
+  python3 "$K3S_RUNTIME" \
+    --platform "$environment_dir/platform.yml" \
+    --repository "$REPO_DIR" \
+    --facts "$phase4_facts_path" \
+    --report "$phase4_runtime_path"
+  phase4_runtime_status=$?
+  set -e
+fi
+
+set +e
+python3 "$K3S_REPORT" \
+  --environment "$environment" \
+  --mode "$action" \
+  --phase-1-report "$report_path" \
+  --phase-2-report "$phase2_report_path" \
+  --phase-3-report "$phase3_report_path" \
+  --facts "$phase4_facts_path" \
+  --runtime-report "$phase4_runtime_path" \
+  --ansible-output "$phase4_output" \
+  --ansible-status "$phase4_status" \
+  --report "$phase4_report_path"
+phase4_report_status=$?
+set -e
+
+if (( phase4_status != 0 )); then
+  exit "$phase4_status"
+fi
+if (( phase4_runtime_status != 0 )); then
+  exit "$phase4_runtime_status"
+fi
+exit "$phase4_report_status"

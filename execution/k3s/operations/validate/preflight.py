@@ -17,6 +17,9 @@ import yaml
 from jsonschema import Draft202012Validator
 
 
+MANAGED_K3S_INTERFACES = {"cni0", "flannel.1"}
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--environment", required=True)
@@ -128,9 +131,10 @@ def check_collections(requirements_path, report, ansible_galaxy):
     mismatches = []
     for requirement in requirements.get("collections", []):
         expected = str(requirement["version"])
-        actual = installed.get(requirement["name"])
+        installed_name = requirement.get("installed_name", requirement["name"])
+        actual = installed.get(installed_name)
         if actual != expected:
-            mismatches.append(f"{requirement['name']} expected {expected}, found {actual or 'missing'}")
+            mismatches.append(f"{installed_name} expected {expected}, found {actual or 'missing'}")
     if mismatches:
         report.add("controller.collections.pinned", "fail", "; ".join(mismatches), "Install the exact versions listed in host/requirements.yml.")
     else:
@@ -189,6 +193,8 @@ def local_ipv4_networks(ip_command):
     for line in result.stdout.splitlines():
         fields = line.split()
         try:
+            if fields[1].rstrip(":") in MANAGED_K3S_INTERFACES:
+                continue
             address = ipaddress.ip_interface(fields[3])
             networks.append(address)
         except (IndexError, ValueError):

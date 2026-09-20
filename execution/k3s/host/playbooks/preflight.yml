@@ -78,9 +78,37 @@
     - name: Collect service state
       ansible.builtin.service_facts:
 
+    - name: Inspect project-managed k3s ownership files
+      ansible.builtin.stat:
+        path: "{{ item.path }}"
+        follow: false
+      loop:
+        - {path: "{{ k3s.data_dir | dirname }}/.mokla-managed", mode: "0600"}
+        - {path: /usr/local/bin/k3s, mode: "0755"}
+        - {path: /etc/systemd/system/k3s.service, mode: "0644"}
+      register: preflight_k3s_ownership
+
+    - name: Determine whether running k3s is project-managed
+      ansible.builtin.set_fact:
+        preflight_k3s_is_managed: >-
+          {{ preflight_k3s_ownership.results
+             | selectattr('stat.exists')
+             | selectattr('stat.isreg')
+             | rejectattr('stat.islnk')
+             | selectattr('stat.pw_name', 'equalto', 'root')
+             | selectattr('stat.gr_name', 'equalto', 'root')
+             | list
+             | length == 3
+             and preflight_k3s_ownership.results[0].stat.mode == '0600'
+             and preflight_k3s_ownership.results[1].stat.mode == '0755'
+             and preflight_k3s_ownership.results[2].stat.mode == '0644' }}
+
     - name: Verify conflicting Kubernetes services are absent
       ansible.builtin.assert:
-        that: "(item not in ansible_facts.services) or (ansible_facts.services[item].state != 'running')"
+        that: >-
+          (item not in ansible_facts.services)
+          or (ansible_facts.services[item].state != 'running')
+          or (item == 'k3s.service' and preflight_k3s_is_managed)
         fail_msg: "Conflicting service {{ item }} is running."
       loop:
         - k3s.service

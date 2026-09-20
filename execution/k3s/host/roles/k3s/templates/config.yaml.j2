@@ -1,0 +1,16 @@
+write-kubeconfig-mode: "0600"
+data-dir: "{{ k3s.data_dir }}"
+default-local-storage-path: "{{ k3s.local_storage_path }}"
+node-name: "{{ k3s.node_name }}"
+node-ip: "{{ k3s.node_ip }}"
+bind-address: "{{ k3s.api_bind_address }}"
+advertise-address: "{{ k3s.node_ip }}"
+tls-san:
+{% for san in k3s.tls_sans %}
+  - "{{ san }}"
+{% endfor %}
+cluster-cidr: "{{ k3s.cluster_cidr }}"
+service-cidr: "{{ k3s.service_cidr }}"
+cluster-dns: "{{ k3s.cluster_dns }}"
+flannel-backend: vxlan
+secrets-encryption: true

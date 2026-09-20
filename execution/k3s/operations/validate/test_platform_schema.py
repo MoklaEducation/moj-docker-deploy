@@ -86,6 +86,17 @@ class PlatformSchemaTests(unittest.TestCase):
                 del platform["backup"][field]
                 self.assertTrue(list(VALIDATOR.iter_errors(platform)), field)
 
+    def test_phase_4_k3s_fields_are_required(self):
+        for field in (
+            "version", "checksum", "node_name", "node_ip", "api_bind_address",
+            "tls_sans", "cluster_cidr", "service_cidr", "cluster_dns", "data_dir",
+            "local_storage_path", "kubeconfig_output", "secrets_encryption",
+        ):
+            with self.subTest(field=field):
+                platform = copy.deepcopy(PLATFORM)
+                del platform["k3s"][field]
+                self.assertTrue(list(VALIDATOR.iter_errors(platform)), field)
+
     def test_unsafe_phase_2_values_are_rejected(self):
         invalid_values = (
             (("host", "storage_root"), "relative/path"),
@@ -114,6 +125,19 @@ class PlatformSchemaTests(unittest.TestCase):
             (("backup", "retention", "daily"), 0),
             (("backup", "restore", "target_root"), "relative/path"),
             (("backup", "restore", "redis_port"), 70000),
+        )
+        for path, value in invalid_values:
+            with self.subTest(path=path):
+                self.assert_invalid(path, value)
+
+    def test_structurally_invalid_phase_4_values_are_rejected(self):
+        invalid_values = (
+            (("k3s", "version"), "stable"),
+            (("k3s", "checksum"), "not-a-checksum"),
+            (("k3s", "node_name"), "INVALID_NAME"),
+            (("k3s", "data_dir"), "relative/path"),
+            (("k3s", "kubeconfig_output"), "../kubeconfig"),
+            (("k3s", "secrets_encryption"), False),
         )
         for path, value in invalid_values:
             with self.subTest(path=path):
