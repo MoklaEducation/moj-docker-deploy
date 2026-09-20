@@ -1,0 +1,247 @@
+---
+- name: Verify the normative Phase 2 platform
+  ansible.builtin.assert:
+    that:
+      - ansible_facts['distribution'] == 'Ubuntu'
+      - ansible_facts['distribution_version'] == '24.04'
+      - ansible_facts['architecture'] in ['x86_64', 'amd64']
+      - ansible_facts['service_mgr'] == 'systemd'
+      - not host.allow_automatic_reboot | bool
+    fail_msg: "Phase 2 supports Ubuntu 24.04 x86_64 with systemd and automatic reboot disabled."
+
+- name: Verify the automation account exists
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ host.automation_user }}"
+
+- name: Verify non-interactive administrative access
+  ansible.builtin.command: sudo -n true
+  become: false
+  check_mode: false
+  changed_when: false
+
+- name: Inspect the automation authorized keys file
+  ansible.builtin.stat:
+    path: "{{ ansible_facts.getent_passwd[host.automation_user][4] }}/.ssh/authorized_keys"
+    follow: false
+  register: baseline_authorized_keys
+
+- name: Preserve public-key administrative access
+  ansible.builtin.assert:
+    that:
+      - baseline_authorized_keys.stat.exists
+      - baseline_authorized_keys.stat.isreg
+      - baseline_authorized_keys.stat.size | int > 0
+      - baseline_authorized_keys.stat.pw_name == host.automation_user
+      - baseline_authorized_keys.stat.mode in ['0600', '0640', '0644']
+    fail_msg: "The automation account must have a non-empty, owned authorized_keys file before SSH hardening."
+
+- name: Read the target SSH host-key fingerprint
+  ansible.builtin.command:
+    argv: [ssh-keygen, -E, sha256, -lf, /etc/ssh/ssh_host_ed25519_key.pub]
+  check_mode: false
+  changed_when: false
+  register: baseline_target_host_key
+  no_log: true
+
+- name: Prove a second public-key SSH connection
+  block:
+    - name: Scan the configured SSH endpoint host key
+      ansible.builtin.command:
+        argv: [ssh-keyscan, -t, ed25519, -p, "{{ host.ssh_port | string }}", "{{ host_address }}"]
+      delegate_to: localhost
+      become: false
+      check_mode: false
+      changed_when: false
+      failed_when: false
+      register: baseline_scanned_host_key
+      no_log: true
+
+    - name: Read the scanned SSH host-key fingerprint
+      ansible.builtin.command:
+        argv: [ssh-keygen, -E, sha256, -lf, -]
+        stdin: "{{ baseline_scanned_host_key.stdout }}"
+      delegate_to: localhost
+      become: false
+      check_mode: false
+      changed_when: false
+      failed_when: false
+      register: baseline_scanned_host_fingerprint
+      no_log: true
+
+    - name: Verify the scanned endpoint is the inspected host
+      ansible.builtin.assert:
+        that:
+          - baseline_scanned_host_fingerprint.rc == 0
+          - baseline_target_host_key.stdout.split()[1] == baseline_scanned_host_fingerprint.stdout.split()[1]
+        fail_msg: "The configured SSH endpoint host key does not match the inspected target."
+
+    - name: Create an ephemeral trusted-host file
+      ansible.builtin.copy:
+        content: "{{ baseline_scanned_host_key.stdout }}\n"
+        dest: "{{ phase2_facts_path }}.known_hosts"
+        owner: "{{ lookup('pipe', 'id -un') }}"
+        group: "{{ lookup('pipe', 'id -gn') }}"
+        mode: "0600"
+      delegate_to: localhost
+      become: false
+      check_mode: false
+      changed_when: false
+      no_log: true
+
+    - name: Verify public-key SSH and sudo in the second connection
+      ansible.builtin.command:
+        argv:
+          - ssh
+          - -o
+          - BatchMode=yes
+          - -o
+          - ConnectTimeout=10
+          - -o
+          - StrictHostKeyChecking=yes
+          - -o
+          - "UserKnownHostsFile={{ phase2_facts_path }}.known_hosts"
+          - -p
+          - "{{ host.ssh_port | string }}"
+          - "{{ host.automation_user }}@{{ host_address }}"
+          - sudo
+          - -n
+          - "true"
+      delegate_to: localhost
+      become: false
+      check_mode: false
+      changed_when: false
+      failed_when: false
+      register: baseline_second_ssh
+      no_log: true
+  always:
+    - name: Remove the ephemeral trusted-host file
+      ansible.builtin.file:
+        path: "{{ phase2_facts_path }}.known_hosts"
+        state: absent
+      delegate_to: localhost
+      become: false
+      check_mode: false
+      changed_when: false
+      no_log: true
+
+- name: Inspect current Docker state
+  ansible.builtin.command: docker info --format '{{ "{{json .}}" }}'
+  register: baseline_existing_docker
+  check_mode: false
+  changed_when: false
+  failed_when: false
+
+- name: Inspect configured root paths
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    follow: false
+  loop:
+    - "{{ host.storage_root }}"
+    - "{{ host.config_root }}"
+    - "{{ host.state_root }}"
+    - "{{ host.evidence_root }}"
+    - "{{ docker.data_root }}"
+  register: baseline_roots
+
+- name: Refuse symlinked or non-directory roots
+  ansible.builtin.assert:
+    that:
+      - not item.stat.exists or item.stat.isdir
+      - not item.stat.exists or not item.stat.islnk
+    fail_msg: "Configured root {{ item.item }} must be an ordinary directory when it exists."
+  loop: "{{ baseline_roots.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Inspect configured root filesystems
+  ansible.builtin.command:
+    argv: [findmnt, --noheadings, --output, FSTYPE, --target, "{{ item | dirname }}"]
+  loop:
+    - "{{ host.storage_root }}"
+    - "{{ host.config_root }}"
+    - "{{ host.state_root }}"
+    - "{{ host.evidence_root }}"
+  check_mode: false
+  changed_when: false
+  register: baseline_root_filesystems
+
+- name: Refuse unsupported root filesystems
+  ansible.builtin.assert:
+    that:
+      - item.stdout | trim not in ['nfs', 'nfs4', 'cifs', 'smb3', 'fuse.sshfs']
+    fail_msg: "Configured roots must use a supported local filesystem."
+  loop: "{{ baseline_root_filesystems.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Inspect configured root parent permissions
+  ansible.builtin.stat:
+    path: "{{ item | dirname }}"
+    follow: false
+  loop:
+    - "{{ host.storage_root }}"
+    - "{{ host.config_root }}"
+    - "{{ host.state_root }}"
+    - "{{ host.evidence_root }}"
+  register: baseline_root_parents
+
+- name: Inspect configured root free space
+  ansible.builtin.command:
+    argv: [df, --output=pcent, "{{ item | dirname }}"]
+  loop:
+    - "{{ host.storage_root }}"
+    - "{{ host.config_root }}"
+    - "{{ host.state_root }}"
+    - "{{ host.evidence_root }}"
+  check_mode: false
+  changed_when: false
+  register: baseline_root_space
+
+- name: Record redacted safety checks on the controller
+  ansible.builtin.copy:
+    content: "{{ baseline_safety_evidence | to_nice_json }}\n"
+    dest: "{{ phase2_facts_path }}"
+    owner: "{{ lookup('pipe', 'id -un') }}"
+    group: "{{ lookup('pipe', 'id -gn') }}"
+    mode: "0600"
+  vars:
+    baseline_safety_evidence:
+      reboot_required: false
+      checks:
+        - id: host.os.phase2_supported
+          status: pass
+          evidence: Ubuntu 24.04 x86_64 with systemd
+          remediation: ""
+        - id: access.second_ssh.proven
+          status: "{{ 'pass' if baseline_second_ssh.rc == 0 else 'fail' }}"
+          evidence: "{{ 'Second public-key SSH connection succeeded' if baseline_second_ssh.rc == 0 else 'Second public-key SSH connection did not succeed' }}"
+          remediation: "Trust the target host key and prove public-key SSH plus sudo in a second session before apply."
+        - id: firewall.administrative_cidr.non_loopback
+          status: "{{ 'pass' if (network.administrative_cidrs | reject('match', '^127\\.') | list | length > 0) else 'fail' }}"
+          evidence: "{{ 'At least one non-loopback administrative CIDR is configured' if (network.administrative_cidrs | reject('match', '^127\\.') | list | length > 0) else 'Only loopback administrative access is configured' }}"
+          remediation: "Configure and review the operator source CIDR before enabling UFW."
+        - id: docker.data_root.migration_safe
+          status: "{{ 'pass' if (baseline_existing_docker.rc != 0 or (baseline_existing_docker.stdout | from_json).DockerRootDir == docker.data_root or ((baseline_existing_docker.stdout | from_json).Containers | int == 0)) else 'fail' }}"
+          evidence: "{{ 'No implicit Docker data migration is required' if (baseline_existing_docker.rc != 0 or (baseline_existing_docker.stdout | from_json).DockerRootDir == docker.data_root or ((baseline_existing_docker.stdout | from_json).Containers | int == 0)) else 'Existing Docker containers use a different data root' }}"
+          remediation: "Explicitly migrate or remove existing containers outside Phase 2 before changing Docker data-root."
+        - id: storage.roots.safe
+          status: "{{ 'pass' if (baseline_roots.results | selectattr('stat.exists') | selectattr('stat.islnk') | list | length == 0 and baseline_root_filesystems.results | selectattr('stdout', 'in', ['nfs', 'nfs4', 'cifs', 'smb3', 'fuse.sshfs']) | list | length == 0) else 'fail' }}"
+          evidence: Configured roots are ordinary directories on supported local filesystems
+          remediation: "Remove symlinks and use a supported local filesystem."
+  delegate_to: localhost
+  become: false
+  check_mode: false
+  changed_when: false
+
+- name: Require all pre-mutation safety conditions
+  ansible.builtin.assert:
+    that:
+      - baseline_second_ssh.rc == 0
+      - network.administrative_cidrs | reject('match', '^127\\.') | list | length > 0
+      - baseline_existing_docker.rc != 0 or
+        (baseline_existing_docker.stdout | from_json).DockerRootDir == docker.data_root or
+        ((baseline_existing_docker.stdout | from_json).Containers | int == 0)
+      - baseline_root_parents.results | selectattr('stat.woth', 'defined') | selectattr('stat.woth') | list | length == 0
+      - baseline_root_space.results | map(attribute='stdout_lines') | map('last') | map('trim') | map('regex_replace', '%$', '') | map('int') | max <= (100 - host.minimum_free_disk_percent)
+    fail_msg: "Phase 2 safety gates failed; review the controller evidence before any apply."

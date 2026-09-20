@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+K3S_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+VENV="$K3S_DIR/.controller-venv"
+[[ -x "$VENV/bin/python3" ]] && export PATH="$VENV/bin:$PATH"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  repair-test-permissions --environment NAME --apply-permission-repair
+
+Repairs host ownership and modes required by the pinned non-root Redis image.
+It does not restart services, modify configuration, or delete data.
+EOF
+}
+
+die() {
+  echo "error: $1" >&2
+  exit 2
+}
+
+environment=""
+apply=false
+while (($# > 0)); do
+  case "$1" in
+    --environment) [[ $# -ge 2 ]] || die "--environment requires a value"; environment="$2"; shift 2 ;;
+    --apply-permission-repair) apply=true; shift ;;
+    --help|-h) usage; exit 0 ;;
+    *) die "unknown argument: $1" ;;
+  esac
+done
+
+[[ "$environment" =~ ^[a-zA-Z0-9._-]+$ ]] || die "--environment is required"
+[[ "$apply" == true ]] || die "permission repair requires explicit --apply-permission-repair"
+platform="$K3S_DIR/environments/$environment/platform.yml"
+[[ -f "$platform" ]] || die "platform file not found: $platform"
+for command in python3 docker sudo; do
+  command -v "$command" >/dev/null || die "$command is required"
+done
+sudo -n true >/dev/null || die "passwordless sudo is required"
+
+mapfile -t settings < <(python3 - "$platform" <<'PY'
+import pathlib
+import sys
+import yaml
+
+platform = yaml.safe_load(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+services = platform["data_services"]
+print(services["provisioning_mode"])
+print(services["redis"]["image"])
+print(services["mariadb"]["image"])
+print(services["redis"]["config_path"])
+print(services["redis"]["data_path"])
+print(platform["host"]["config_root"])
+PY
+)
+[[ "${#settings[@]}" -eq 6 ]] || die "platform data-service configuration is incomplete"
+[[ "${settings[0]}" == "helper-managed" ]] || die "permission repair is disabled for external services"
+
+redis_image="${settings[1]}"
+mariadb_image="${settings[2]}"
+redis_config_root="${settings[3]}"
+redis_data_root="${settings[4]}"
+config_root="${settings[5]}"
+runtime_secret_root="$config_root/secrets/data-services/runtime"
+
+[[ "$redis_config_root" == "$config_root"/data-services/redis ]] || die "Redis configuration path is outside the managed root"
+sudo -n test -f "$redis_data_root/.mokla-managed" || die "Redis data ownership marker is missing"
+sudo -n grep -Fxq "managed-by=mokla-phase-3" "$redis_data_root/.mokla-managed" || die "Redis data ownership marker is invalid"
+sudo -n grep -Fxq "environment=$environment" "$redis_data_root/.mokla-managed" || die "Redis data belongs to another environment"
+
+redis_uid="$(sudo -n docker run --rm --entrypoint id "$redis_image" -u redis)"
+redis_gid="$(sudo -n docker run --rm --entrypoint id "$redis_image" -g redis)"
+mariadb_uid="$(sudo -n docker run --rm --entrypoint id "$mariadb_image" -u mysql)"
+[[ "$redis_uid" =~ ^[0-9]+$ && "$redis_gid" =~ ^[0-9]+$ ]] || die "could not determine the Redis runtime identity"
+[[ "$redis_uid" == "$mariadb_uid" ]] || die "shared TLS files require matching MariaDB and Redis runtime UIDs"
+
+redis_config="$redis_config_root/redis.conf"
+redis_healthcheck="$redis_config_root/healthcheck.sh"
+runtime_files=(
+  "$runtime_secret_root/redis-password"
+  "$runtime_secret_root/redis-users.acl"
+  "$runtime_secret_root/ca.crt"
+  "$runtime_secret_root/server.crt"
+  "$runtime_secret_root/server.key"
+)
+for path in "$redis_config_root" "$redis_config" "$redis_healthcheck" "$redis_data_root" "$runtime_secret_root" "${runtime_files[@]}"; do
+  sudo -n test -e "$path" || die "required managed path is missing: $path"
+done
+
+sudo -n chown "$redis_uid:$redis_gid" "$redis_config_root" "$redis_config" "$redis_healthcheck" "$redis_data_root"
+sudo -n chmod 0750 "$redis_config_root" "$redis_healthcheck" "$redis_data_root"
+sudo -n chmod 0640 "$redis_config"
+sudo -n chown "$redis_uid:$redis_gid" "$runtime_secret_root" "${runtime_files[@]}"
+sudo -n chmod 0700 "$runtime_secret_root"
+sudo -n chmod 0600 "${runtime_files[@]}"
+
+echo "Redis host permissions repaired for environment $environment."
+echo "No service was restarted. Verify with:"
+echo "  sudo systemctl restart mokla-data-services.service"
+echo "  sudo docker ps --filter name=mokla-$environment"

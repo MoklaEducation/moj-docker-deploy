@@ -1,0 +1,118 @@
+---
+- name: Read data-service container health
+  ansible.builtin.command:
+    argv: [docker, inspect, --format, "{{ '{{.State.Health.Status}}' }}", "{{ data_services_project_name }}-{{ item }}-1"]
+  loop: [mariadb, redis]
+  register: data_services_health
+  retries: 30
+  delay: 4
+  until: data_services_health.stdout == 'healthy'
+  check_mode: false
+  changed_when: false
+  no_log: true
+  when: not ansible_check_mode
+
+- name: Read exact listening sockets
+  ansible.builtin.command:
+    argv: [ss, --tcp, --listening, --numeric, --no-header]
+  register: data_services_sockets
+  check_mode: false
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Verify private service listeners
+  ansible.builtin.assert:
+    that:
+      - data_services_sockets.stdout is search(data_services.bind_address ~ ':' ~ (data_services.mariadb.port | string))
+      - data_services_sockets.stdout is search(data_services.bind_address ~ ':' ~ (data_services.redis.port | string))
+      - not data_services_sockets.stdout is search('0.0.0.0:' ~ (data_services.mariadb.port | string))
+      - not data_services_sockets.stdout is search('0.0.0.0:' ~ (data_services.redis.port | string))
+  when: not ansible_check_mode
+
+- name: Read effective UFW data-service rules
+  ansible.builtin.command: ufw status
+  register: data_services_ufw
+  check_mode: false
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Verify every declared data-service firewall input
+  ansible.builtin.assert:
+    that:
+      - data_services_ufw.stdout is search(item)
+    fail_msg: "The effective UFW state is missing a declared Phase 3 address, CIDR, or port."
+  loop: "{{ [data_services.bind_address, data_services.mariadb.port | string, data_services.redis.port | string] + data_services.allowed_client_cidrs }}"
+  when: not ansible_check_mode
+
+- name: Write allow-listed Phase 3 facts for controller evidence
+  ansible.builtin.copy:
+    content: "{{ data_services_evidence | to_nice_json }}\n"
+    dest: "{{ phase3_facts_path }}"
+    owner: "{{ lookup('pipe', 'id -un') }}"
+    group: "{{ lookup('pipe', 'id -gn') }}"
+    mode: "0600"
+  vars:
+    data_services_evidence:
+      role_version: "{{ data_services_role_version }}"
+      delivery_profile: "{{ data_services.delivery_profile }}"
+      images:
+        mariadb: "{{ data_services.mariadb.image }}"
+        redis: "{{ data_services.redis.image }}"
+      configuration_hashes:
+        compose: "{{ data_services_rendered_compose | hash('sha256') }}"
+        mariadb: "{{ data_services_rendered_mariadb | hash('sha256') }}"
+        redis: "{{ data_services_rendered_redis | hash('sha256') }}"
+        systemd: "{{ data_services_rendered_unit | hash('sha256') }}"
+      network:
+        bind_address: "{{ data_services.bind_address }}"
+        mariadb_port: "{{ data_services.mariadb.port }}"
+        redis_port: "{{ data_services.redis.port }}"
+        allowed_client_cidrs: "{{ data_services.allowed_client_cidrs }}"
+      services:
+        mariadb: "{{ 'healthy' if not ansible_check_mode else 'not_checked' }}"
+        redis: "{{ 'healthy' if not ansible_check_mode else 'not_checked' }}"
+      checks:
+        - id: data_services.phase2.converged
+          status: pass
+          evidence: Passing clean Phase 2 evidence was verified
+          remediation: ""
+        - id: data_services.adoption.safe
+          status: pass
+          evidence: No unmanaged native service, container, or non-empty target was found
+          remediation: ""
+        - id: data_services.render.valid
+          status: pass
+          evidence: Compose, MariaDB, Redis, and systemd definitions passed offline validation
+          remediation: ""
+        - id: data_services.runtime.healthy
+          status: "{{ 'pass' if not ansible_check_mode else 'not_applicable' }}"
+          evidence: "{{ 'Both configured containers reported healthy' if not ansible_check_mode else 'Runtime health is not probed in check mode' }}"
+          remediation: ""
+        - id: data_services.network.private_listeners
+          status: "{{ 'pass' if not ansible_check_mode else 'not_applicable' }}"
+          evidence: "{{ 'MariaDB and Redis listen only on the configured private address' if not ansible_check_mode else 'Listener state is not probed in check mode' }}"
+          remediation: ""
+        - id: data_services.tls.enforced
+          status: "{{ 'not_applicable' if data_services.delivery_profile == 'development' else 'pass' }}"
+          evidence: "{{ 'TLS is deferred by the development delivery profile' if data_services.delivery_profile == 'development' else 'TLS configuration passed hardened-profile validation' }}"
+          remediation: ""
+        - id: data_services.systemd.supervised
+          status: "{{ 'not_applicable' if not data_services.systemd_supervision_enabled else 'pass' }}"
+          evidence: "{{ 'Systemd supervision is deferred by the development delivery profile' if not data_services.systemd_supervision_enabled else 'Systemd supervision is enabled' }}"
+          remediation: ""
+        - id: data_services.backup.configured
+          status: "{{ 'not_applicable' if not backup.enabled else 'pass' }}"
+          evidence: "{{ 'Backup and restore are deferred by the development delivery profile' if not backup.enabled else 'Backup configuration passed validation' }}"
+          remediation: ""
+        - id: data_services.network.external_allowed
+          status: "{{ 'not_applicable' if data_services.delivery_profile == 'development' else 'pending' }}"
+          evidence: "{{ 'External source qualification is deferred by the development delivery profile' if data_services.delivery_profile == 'development' else 'External allowed-source connectivity has not been recorded' }}"
+          remediation: "{{ '' if data_services.delivery_profile == 'development' else 'Run the documented external allowed-source TLS and authentication probe.' }}"
+        - id: data_services.network.external_denied
+          status: "{{ 'not_applicable' if data_services.delivery_profile == 'development' else 'pending' }}"
+          evidence: "{{ 'External source qualification is deferred by the development delivery profile' if data_services.delivery_profile == 'development' else 'External denied-source isolation has not been recorded' }}"
+          remediation: "{{ '' if data_services.delivery_profile == 'development' else 'Run the documented external denied-source probe.' }}"
+  delegate_to: localhost
+  become: false
+  check_mode: false
+  changed_when: false

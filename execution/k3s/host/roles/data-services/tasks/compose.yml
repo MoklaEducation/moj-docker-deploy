@@ -1,0 +1,53 @@
+---
+- name: Install non-secret data-service configuration
+  ansible.builtin.copy:
+    content: "{{ item.content }}"
+    dest: "{{ item.dest }}"
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "0640"
+  loop:
+    - {content: "{{ data_services_rendered_compose }}", dest: "{{ data_services_compose_path }}", owner: root, group: root}
+    - {content: "{{ data_services_rendered_mariadb }}", dest: "{{ data_services.mariadb.config_path }}/mariadb.cnf", owner: "{{ data_services.mariadb.runtime_uid }}", group: "{{ data_services.mariadb.runtime_gid }}"}
+    - {content: "{{ data_services_rendered_redis }}", dest: "{{ data_services.redis.config_path }}/redis.conf", owner: "{{ data_services.redis.runtime_uid }}", group: "{{ data_services.redis.runtime_gid }}"}
+  when: not ansible_check_mode
+  notify: Restart data services
+
+- name: Install Redis health check
+  ansible.builtin.copy:
+    content: "{{ lookup('ansible.builtin.template', 'redis-healthcheck.sh.j2') }}"
+    dest: "{{ data_services.redis.config_path }}/healthcheck.sh"
+    owner: "{{ data_services.redis.runtime_uid }}"
+    group: "{{ data_services.redis.runtime_gid }}"
+    mode: "0750"
+  when: not ansible_check_mode
+  notify: Restart data services
+
+- name: Validate installed Compose definition
+  ansible.builtin.command:
+    argv: [docker, compose, --project-name, "{{ data_services_project_name }}", --file, "{{ data_services_compose_path }}", config, --quiet]
+  check_mode: false
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Apply changed data-service lifecycle inputs
+  ansible.builtin.meta: flush_handlers
+
+- name: Start development data services with Docker Compose
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - --project-name
+      - "{{ data_services_project_name }}"
+      - --file
+      - "{{ data_services_compose_path }}"
+      - up
+      - --detach
+      - --remove-orphans
+      - --wait
+  register: data_services_compose_up
+  changed_when: false
+  when:
+    - not ansible_check_mode
+    - not data_services.systemd_supervision_enabled

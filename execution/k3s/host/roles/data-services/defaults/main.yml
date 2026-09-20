@@ -1,0 +1,8 @@
+---
+data_services_role_version: "1"
+data_services_project_name: "mokla-{{ environment_name }}"
+data_services_compose_path: "{{ host.config_root }}/data-services/compose.yml"
+data_services_secret_root: "{{ host.config_root }}/secrets/data-services"
+data_services_runtime_secret_root: "{{ data_services_secret_root }}/runtime"
+data_services_backup_secret_root: "{{ data_services_secret_root }}/backup"
+data_services_unit_name: mokla-data-services.service

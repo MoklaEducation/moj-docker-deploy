@@ -1,0 +1,11 @@
+[Unit]
+Description=Schedule Mokla data-service backups
+
+[Timer]
+OnCalendar={{ backup.schedule }}
+RandomizedDelaySec={{ backup.randomized_delay_seconds }}
+Persistent=true
+Unit=mokla-data-backup.service
+
+[Install]
+WantedBy=timers.target

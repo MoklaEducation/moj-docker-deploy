@@ -1,0 +1,23 @@
+---
+- name: Install data-service systemd unit
+  ansible.builtin.copy:
+    content: "{{ data_services_rendered_unit }}"
+    dest: "/etc/systemd/system/{{ data_services_unit_name }}"
+    owner: root
+    group: root
+    mode: "0644"
+  when: not ansible_check_mode
+  notify:
+    - Reload systemd for data services
+    - Restart data services
+
+- name: Flush data-service lifecycle handlers
+  ansible.builtin.meta: flush_handlers
+  when: not ansible_check_mode
+
+- name: Enable and start data services
+  ansible.builtin.systemd_service:
+    name: "{{ data_services_unit_name }}"
+    enabled: true
+    state: started
+  when: not ansible_check_mode

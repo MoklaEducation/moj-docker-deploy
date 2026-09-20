@@ -1,0 +1,27 @@
+bind 127.0.0.1 {{ data_services.bind_address }}
+protected-mode yes
+{% if data_services.tls.enabled %}
+port 0
+tls-port {{ data_services.redis.port }}
+tls-cert-file /run/secrets/server.crt
+tls-key-file /run/secrets/server.key
+tls-ca-cert-file /run/secrets/ca.crt
+tls-auth-clients no
+{% else %}
+port {{ data_services.redis.port }}
+{% endif %}
+aclfile /run/secrets/redis-users.acl
+maxmemory {{ data_services.redis.maxmemory }}
+maxmemory-policy {{ data_services.redis.maxmemory_policy }}
+dir /data
+{% if data_services.redis.data_policy == 'persistent' %}
+save 900 1
+save 300 10
+appendonly yes
+appendfsync everysec
+{% else %}
+save ""
+appendonly no
+{% endif %}
+loglevel notice
+logfile ""

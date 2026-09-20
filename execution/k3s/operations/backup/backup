@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+K3S_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+REPORTER="$K3S_DIR/operations/validate/data_services_operation_report.py"
+
+usage() {
+  echo "Usage: backup data-services --environment NAME" >&2
+  echo "       backup verify --environment NAME --snapshot ID" >&2
+}
+
+action="${1:-}"
+shift || true
+environment=""
+snapshot=""
+while (($#)); do
+  case "$1" in
+    --environment) (($# >= 2)) || { usage; exit 2; }; environment="$2"; shift 2 ;;
+    --snapshot) (($# >= 2)) || { usage; exit 2; }; snapshot="$2"; shift 2 ;;
+    *) usage; exit 2 ;;
+  esac
+done
+[[ -n "$environment" ]] || { usage; exit 2; }
+case "$action" in
+  data-services)
+    [[ -z "$snapshot" ]] || { usage; exit 2; }
+    report="$K3S_DIR/.evidence/$environment/phase-3-backup.json"
+    output="$(mktemp)"
+    trap 'rm -f "$output"' EXIT
+    set +e
+    sudo -n /usr/local/sbin/mokla-data-backup --environment "$environment" >"$output"
+    status=$?
+    set -e
+    python3 "$REPORTER" --operation backup --environment "$environment" --status "$status" --output "$output" --report "$report"
+    exit "$status"
+    ;;
+  verify)
+    [[ -n "$snapshot" ]] || { usage; exit 2; }
+    report="$K3S_DIR/.evidence/$environment/phase-3-backup.json"
+    output="$(mktemp)"
+    trap 'rm -f "$output"' EXIT
+    set +e
+    sudo -n /usr/local/sbin/mokla-data-backup-verify --environment "$environment" --snapshot "$snapshot" >"$output"
+    status=$?
+    set -e
+    python3 "$REPORTER" --operation verify --environment "$environment" --status "$status" --output "$output" --report "$report" --snapshot "$snapshot"
+    exit "$status"
+    ;;
+  *) usage; exit 2 ;;
+esac

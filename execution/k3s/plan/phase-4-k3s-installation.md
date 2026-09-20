@@ -2,6 +2,72 @@
 
 Status: ready for implementation after Phase 3 passes.
 
+## Current Development Profile Addendum
+
+This addendum defines the current `test` environment delivery profile and overrides
+conflicting production-oriented requirements later in this document. Phase 4 may proceed
+as a disposable, single-node development cluster once the passing Phase 1-3 evidence is
+current. Production hardening remains future work and must not be inferred from this
+profile.
+
+### Recovery and backup posture
+
+- Treat the pre-change host backup prerequisite as satisfied by explicit acceptance that
+  this is a disposable first cluster with no application workloads or k3s state to
+  preserve.
+- Phase 3 MariaDB and Redis contain no required application data. Their deferred off-host
+  backup does not block Phase 4 implementation or acceptance.
+- References below to an encrypted off-host copy of the newly generated server token,
+  configuration, or SQLite state are also deferred for this disposable profile. Protect
+  those artifacts with their required root-only modes on the host, but do not make an
+  off-host backup artifact a completion gate.
+- Do not claim backup or restore qualification. Before application data or irreplaceable
+  cluster state is introduced, implement the backup and recovery gates defined by the
+  later production phases.
+- Ordinary automation must still preserve existing Phase 3 data and must never invoke the
+  k3s uninstall script, delete service data, or reset the host implicitly.
+
+### Development firewall posture
+
+- Keep UFW enabled and retain its default host-ingress restrictions.
+- Keep TCP `6443` restricted to the configured administrative CIDRs and retain the
+  existing reviewed `80`/`443` ingress policy.
+- Add only the forwarding rules required for the configured pod and service CIDRs to
+  support pod networking, DNS, ClusterIP services, pod egress, and the explicitly allowed
+  pod-to-MariaDB/Redis paths.
+- Do not expose kubelet port `10250` externally. Do not open Flannel VXLAN port `8472`
+  externally for this single-node cluster. Reassess both when a multi-node topology is
+  designed.
+- Interface-specific restrictions, external allowed/denied source qualification,
+  firewall logging policy, and production segmentation are deferred. Phase 4 must still
+  prove DNS, ClusterIP, pod egress, and permitted host data-service connectivity so UFW
+  incompatibility cannot be mistaken for a healthy cluster.
+
+### Development identity, DNS, and certificates
+
+- The implementation may select and record an exact supported k3s release and its
+  published SHA-256 checksum without a separate architecture decision, provided the
+  release is immutable and passes the repository validation gates.
+- Derive the node IP and API bind address from `host_address`. Choose a stable,
+  environment-specific node name and record it in `platform.yml` before apply.
+- Use the stable private IP and a locally resolvable development hostname as API TLS SANs.
+  Public DNS is not required for this profile.
+- Use k3s-managed bootstrap CA and serving certificates. A public CA, cert-manager, and
+  automated certificate rotation are not Phase 4 prerequisites.
+- Keep the configured pod and service CIDRs, use the conventional service DNS address,
+  retain the planned `/srv/mokla/k3s` paths, enable secrets encryption, and write the
+  bootstrap kubeconfig only to an ignored mode-`0600` controller path.
+- All selected values must be concrete in the schema-backed environment configuration
+  before apply; placeholders remain a hard failure.
+
+### Development completion boundary
+
+The first apply, unchanged second apply, final check mode, reboot recovery, component
+health, DNS, storage, ClusterIP, pod egress, pod-to-data-service access, API restriction,
+and Docker/containerd separation checks remain required. Off-host backup freshness,
+publicly trusted certificates, public DNS, multi-node firewall rules, and production
+network qualification are explicitly not required for this development profile.
+
 ## Mission
 
 Install one exact k3s release on the prepared host and prove that the Kubernetes control

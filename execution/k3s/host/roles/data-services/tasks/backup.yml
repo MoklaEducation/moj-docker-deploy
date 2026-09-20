@@ -1,0 +1,97 @@
+---
+- name: Create the local operation helper directory
+  ansible.builtin.file:
+    path: /usr/local/libexec
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: not ansible_check_mode
+
+- name: Install Phase 3 backup and restore scripts
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "0750"
+  loop:
+    - {src: mokla-data-backup.j2, dest: /usr/local/sbin/mokla-data-backup}
+    - {src: mokla-data-backup-verify.j2, dest: /usr/local/sbin/mokla-data-backup-verify}
+    - {src: mokla-data-restore-test.j2, dest: /usr/local/sbin/mokla-data-restore-test}
+    - {src: restic-snapshot-id.py.j2, dest: /usr/local/libexec/mokla-restic-snapshot-id}
+  when: not ansible_check_mode
+
+- name: Install restic credential files
+  ansible.builtin.copy:
+    content: "{{ lookup('ansible.builtin.vars', item) }}\n"
+    dest: "{{ data_services_backup_secret_root }}/{{ item }}"
+    owner: root
+    group: root
+    mode: "0600"
+  loop: "{{ ['restic_password'] + backup.repository_credential_secret_keys }}"
+  when: not ansible_check_mode
+  no_log: true
+
+- name: Inspect local development restic repository contents
+  ansible.builtin.command:
+    argv: [find, "{{ backup.restic_repository }}", -mindepth, "1", -maxdepth, "1", -print, -quit]
+  register: data_services_local_restic_contents
+  check_mode: false
+  changed_when: false
+  when:
+    - not ansible_check_mode
+    - backup.repository_mode == 'local-development'
+
+- name: Inspect local development restic repository configuration
+  ansible.builtin.stat:
+    path: "{{ backup.restic_repository }}/config"
+  register: data_services_local_restic_config
+  when:
+    - not ansible_check_mode
+    - backup.repository_mode == 'local-development'
+
+- name: Refuse adoption of an unrecognized local restic repository
+  ansible.builtin.assert:
+    that:
+      - data_services_local_restic_contents.stdout | trim == '' or data_services_local_restic_config.stat.isreg | default(false)
+    fail_msg: The local development restic path is non-empty and is not an initialized restic repository.
+  when:
+    - not ansible_check_mode
+    - backup.repository_mode == 'local-development'
+
+- name: Initialize the local development restic repository
+  ansible.builtin.command:
+    argv: [restic, init]
+  environment:
+    RESTIC_REPOSITORY: "{{ backup.restic_repository }}"
+    RESTIC_PASSWORD_FILE: "{{ data_services_backup_secret_root }}/restic_password"
+  no_log: true
+  when:
+    - not ansible_check_mode
+    - backup.repository_mode == 'local-development'
+    - not data_services_local_restic_config.stat.exists
+
+- name: Install backup systemd units
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "/etc/systemd/system/{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - {src: mokla-data-backup.service.j2, dest: mokla-data-backup.service}
+    - {src: mokla-data-backup.timer.j2, dest: mokla-data-backup.timer}
+  when: not ansible_check_mode
+  notify: Reload systemd for data services
+
+- name: Reload systemd before enabling backup timer
+  ansible.builtin.meta: flush_handlers
+  when: not ansible_check_mode
+
+- name: Enable the data backup timer
+  ansible.builtin.systemd_service:
+    name: mokla-data-backup.timer
+    enabled: true
+    state: started
+  when: not ansible_check_mode
