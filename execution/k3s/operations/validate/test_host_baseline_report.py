@@ -13,6 +13,13 @@ SPEC.loader.exec_module(REPORT)
 
 
 class HostBaselineReportTests(unittest.TestCase):
+    def test_baseline_firewall_check_allows_later_phase_rules(self):
+        verify = (
+            MODULE_PATH.parents[2] / "host/roles/baseline/tasks/verify.yml"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("not baseline_verify_ufw.stdout is search('3306/tcp')", verify)
+        self.assertNotIn("not baseline_verify_ufw.stdout is search('6379/tcp')", verify)
+
     def test_recap_is_parsed(self):
         recap = REPORT.parse_recap(
             "localhost : ok=42 changed=3 unreachable=0 failed=0 skipped=2 rescued=0 ignored=0\n"

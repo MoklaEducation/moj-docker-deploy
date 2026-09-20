@@ -95,36 +95,69 @@ pinned Docker Engine/Compose. It does not create Phase 3 directories or containe
 ## Clean-Machine Runbook
 
 Run as the configured non-root automation user with working `sudo -n`, a matching age
-identity, a second SSH path, and verified recovery access.
+identity, a second SSH path, and verified recovery access. First complete the Phase 1
+[clean-machine secret setup](phase-1-preflight-progress.md#clean-machine-runbook), so the
+test inventory, platform configuration, encrypted secrets, and age identity exist.
+
+Each command block below initializes its own shell context. Replace the repository path
+and environment name when necessary.
+
+### 1. Install the controller and check the proposed host changes
 
 ```bash
 cd /path/to/moj-docker-deploy
-export SOPS_AGE_KEY_FILE="$PWD/execution/k3s/environments/test/age-identity.txt"
+ENVIRONMENT="test"
+K3S_DIR="$PWD/execution/k3s"
+export PATH="$K3S_DIR/.controller-venv/bin:$PATH"
+export ANSIBLE_CONFIG="$K3S_DIR/host/ansible.cfg"
+export SOPS_AGE_KEY_FILE="$K3S_DIR/environments/$ENVIRONMENT/age-identity.txt"
 
+./execution/k3s/operations/setup/controller.sh install
 ./execution/k3s/operations/setup/controller.sh check
-./execution/k3s/bootstrap.sh check --environment test
-./execution/k3s/bootstrap.sh check --environment test --through host-baseline
+test -r "$SOPS_AGE_KEY_FILE"
+./execution/k3s/bootstrap.sh check --environment "$ENVIRONMENT"
+./execution/k3s/bootstrap.sh check --environment "$ENVIRONMENT" --through host-baseline
 ```
 
 Review the check-mode diff. Confirm that the configured administrative CIDRs include
 the operator source, no existing Docker containers require migration, and console
-recovery remains available. Then apply twice and finish with check mode:
+recovery remains available.
+
+### 2. Apply, prove idempotence, and run the final check
 
 ```bash
-./execution/k3s/bootstrap.sh apply --environment test --through host-baseline
-./execution/k3s/bootstrap.sh apply --environment test --through host-baseline
-./execution/k3s/bootstrap.sh check --environment test --through host-baseline
+cd /path/to/moj-docker-deploy
+ENVIRONMENT="test"
+K3S_DIR="$PWD/execution/k3s"
+export PATH="$K3S_DIR/.controller-venv/bin:$PATH"
+export ANSIBLE_CONFIG="$K3S_DIR/host/ansible.cfg"
+export SOPS_AGE_KEY_FILE="$K3S_DIR/environments/$ENVIRONMENT/age-identity.txt"
+
+./execution/k3s/operations/setup/controller.sh check
+test -r "$SOPS_AGE_KEY_FILE"
+./execution/k3s/bootstrap.sh apply --environment "$ENVIRONMENT" --through host-baseline
+./execution/k3s/bootstrap.sh apply --environment "$ENVIRONMENT" --through host-baseline
+./execution/k3s/bootstrap.sh check --environment "$ENVIRONMENT" --through host-baseline
 ```
 
 If evidence reports `reboot_required=true`, reboot explicitly through the provider or
-console, reconnect, rerun Phase 1, and repeat the same apply command. Automation never
-reboots the host.
+console. After reconnecting, rerun both blocks in order. Automation never reboots the
+host.
 
 ## Developer Validation
 
 The following validations passed:
 
 ```bash
+cd /path/to/moj-docker-deploy
+ENVIRONMENT="test"
+K3S_DIR="$PWD/execution/k3s"
+export PATH="$K3S_DIR/.controller-venv/bin:$PATH"
+export ANSIBLE_CONFIG="$K3S_DIR/host/ansible.cfg"
+export SOPS_AGE_KEY_FILE="$K3S_DIR/environments/$ENVIRONMENT/age-identity.txt"
+
+./execution/k3s/operations/setup/controller.sh check
+
 python3 -m unittest -v \
   execution/k3s/operations/setup/test_controller_validate.py \
   execution/k3s/operations/validate/test_preflight.py \
@@ -140,19 +173,20 @@ python3 -m py_compile \
 
 bash -n execution/k3s/bootstrap.sh execution/k3s/operations/setup/controller.sh
 
-ANSIBLE_CONFIG=execution/k3s/host/ansible.cfg \
-  ansible-inventory -i execution/k3s/environments/test/inventory.yml --graph
+ansible-inventory -i execution/k3s/environments/test/inventory.yml --graph
 
-ANSIBLE_CONFIG=execution/k3s/host/ansible.cfg \
-  ansible-playbook -i execution/k3s/environments/test/inventory.yml \
+ansible-playbook -i execution/k3s/environments/test/inventory.yml \
   execution/k3s/host/playbooks/preflight.yml --syntax-check \
   -e platform_file=execution/k3s/environments/test/platform.yml
 
-ANSIBLE_CONFIG=execution/k3s/host/ansible.cfg \
-  ansible-playbook -i execution/k3s/environments/test/inventory.yml \
+ansible-playbook -i execution/k3s/environments/test/inventory.yml \
   execution/k3s/host/playbooks/host-baseline.yml --syntax-check \
   -e platform_file=execution/k3s/environments/test/platform.yml \
   -e phase2_facts_path=/tmp/phase-2-facts.json
+
+./execution/k3s/bootstrap.sh check --environment "$ENVIRONMENT"
+./execution/k3s/bootstrap.sh check --environment "$ENVIRONMENT" --through host-baseline
+git diff --check
 ```
 
 The unit run completed 12 tests. `git diff --check` passed. `shellcheck`, `yamllint`,
@@ -222,3 +256,4 @@ or application workloads as part of this phase.
 | 2026-09-19 | Resolved access, Docker migration, check-mode probe, SSH precedence, and evidence assertion failures encountered on the VM. | Successful convergence reached `ok=76 changed=3`; no reboot was required. |
 | 2026-09-19 | Proved idempotence and final clean check mode with strengthened acceptance evidence. | Apply reached `ok=80 changed=0`; two final checks each reached `ok=76 changed=0`; Phase 1 independently remained `ok=16 changed=0`. |
 | 2026-09-19 | Excluded transient Docker repository metadata refreshes from managed-state change accounting. | All 12 tests and documented static checks passed; Phase 2 check reached `ok=76 changed=0 failed=0`. |
+| 2026-09-19 | Made operator and developer command blocks self-contained and ordered for fresh shells. | The documented setup/check sequence passed with Phase 1 `ok=16 changed=0` and Phase 2 `ok=76 changed=0`. |

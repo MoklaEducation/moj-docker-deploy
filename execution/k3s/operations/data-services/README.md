@@ -23,6 +23,19 @@ firewall rules, image scans, and the Ansible check output:
 The explicit flag is mandatory. Setup delegates to the existing ordered Ansible path,
 including Phase 1 and Phase 2 prerequisites. It does not install services inside k3s.
 
+If a test-host apply used the original root-only Redis file modes, repair only those
+managed permissions with an explicit acknowledgement:
+
+```bash
+./execution/k3s/operations/data-services/repair-test-permissions \
+  --environment test --apply-permission-repair
+```
+
+The repair verifies the Phase 3 ownership marker and derives numeric runtime identities
+from the pinned images. It does not restart services, change configuration, or delete
+data. This is a test recovery helper; the desired-state role must retain the corrected
+ownership before another apply.
+
 ## Production: Externally Managed Services
 
 Set `data_services.provisioning_mode: external`, configure the private endpoint and

@@ -132,8 +132,6 @@
           - "baseline_verify_ufw.stdout is search('Default: deny \\(incoming\\), allow \\(outgoing\\), deny \\(routed\\)')"
           - baseline_verify_ufw.stdout is search(host.ssh_port | string ~ '/tcp')
           - baseline_verify_ufw.stdout is search('6443/tcp')
-          - not baseline_verify_ufw.stdout is search('3306/tcp')
-          - not baseline_verify_ufw.stdout is search('6379/tcp')
           - (baseline_verify_docker.stdout | from_json).DockerRootDir == docker.data_root
           - (baseline_verify_docker.stdout | from_json).Driver != ''
           - (baseline_verify_docker.stdout | from_json).Swarm.LocalNodeState == 'inactive'
@@ -221,8 +219,8 @@
           evidence: Active swap state inspected
           remediation: "Disable active and persistent swap."
         - id: firewall.ufw.active
-          status: "{{ 'pass' if (baseline_verify_ufw.stdout is search('Status: active') and baseline_verify_ufw.stdout is search('Default: deny \\(incoming\\), allow \\(outgoing\\), deny \\(routed\\)') and baseline_verify_ufw.stdout is search(host.ssh_port | string ~ '/tcp') and baseline_verify_ufw.stdout is search('6443/tcp') and not baseline_verify_ufw.stdout is search('3306/tcp') and not baseline_verify_ufw.stdout is search('6379/tcp')) else 'fail' }}"
-          evidence: UFW defaults and allowed ports inspected without exposing unrelated rules
+          status: "{{ 'pass' if (baseline_verify_ufw.stdout is search('Status: active') and baseline_verify_ufw.stdout is search('Default: deny \\(incoming\\), allow \\(outgoing\\), deny \\(routed\\)') and baseline_verify_ufw.stdout is search(host.ssh_port | string ~ '/tcp') and baseline_verify_ufw.stdout is search('6443/tcp')) else 'fail' }}"
+          evidence: UFW defaults and Phase 2-owned ports inspected without exposing unrelated rules
           remediation: "Apply reviewed allow rules before enabling UFW."
         - id: logging.journald.bounded
           status: "{{ 'pass' if ('SystemMaxUse=' ~ host.journald_max_use) in baseline_verify_journald.stdout else 'fail' }}"

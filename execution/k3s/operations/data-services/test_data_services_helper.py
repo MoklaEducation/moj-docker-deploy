@@ -10,6 +10,7 @@ import unittest
 
 
 HELPER = pathlib.Path(__file__).with_name("data-services")
+PERMISSION_REPAIR = pathlib.Path(__file__).with_name("repair-test-permissions")
 K3S_DIR = HELPER.parents[2]
 
 
@@ -30,6 +31,16 @@ class DataServicesHelperTests(unittest.TestCase):
         result = self.run_helper("encrypt-secrets", "--environment", "test")
         self.assertEqual(2, result.returncode)
         self.assertIn("--from", result.stderr)
+
+    def test_permission_repair_requires_explicit_acknowledgement(self):
+        result = subprocess.run(
+            [str(PERMISSION_REPAIR), "--environment", "test"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(2, result.returncode)
+        self.assertIn("--apply-permission-repair", result.stderr)
 
     @unittest.skipUnless(shutil.which("ansible-playbook"), "ansible-playbook is required")
     def test_external_mode_skips_local_service_role(self):
