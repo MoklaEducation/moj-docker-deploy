@@ -16,6 +16,7 @@ ALLOWED_FACT_KEYS = {
     "role_version", "phase_state", "version", "checksum", "config_hash", "node_name",
     "node_ip", "api_bind_address", "cluster_cidr", "service_cidr", "data_dir",
     "local_storage_path", "service_active", "service_enabled", "docker_data_root", "checks",
+    "service_start_before", "service_start_after",
 }
 FORBIDDEN = re.compile(r"BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY|AGE-SECRET-KEY-|ENC\[|token\s*[=:]|client-key-data", re.IGNORECASE)
 
@@ -66,21 +67,43 @@ def main():
     })
     failed = args.ansible_status != 0 or not facts or not runtime or any(check.get("status") == "fail" for check in checks)
     pending = any(check.get("status") == "pending" for check in checks)
+    generated_at = dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z")
+    recap = parse_recap(args.ansible_output.read_text(encoding="utf-8", errors="replace"))
+    existing = load_json(args.report)
+    lifecycle_runs = existing.get("lifecycle", {}).get("runs", [])
+    start_before = facts.get("service_start_before") or None
+    start_after = facts.get("service_start_after") or None
+    overall_status = "fail" if failed else ("preinstall_ready" if pending else "pass")
+    lifecycle_runs.append({
+        "generated_at": generated_at,
+        "mode": args.mode,
+        "ansible_recap": recap,
+        "service_start_before": start_before,
+        "service_start_after": start_after,
+        "service_restarted": bool(start_before and start_after and start_before != start_after),
+        "runtime_scope": "full_smoke" if args.mode == "apply" else "read_only_observation",
+        "overall_status": overall_status,
+    })
     report = {
         "schema_version": "1",
         "phase": "phase-4-k3s-installation",
-        "generated_at": dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z"),
+        "generated_at": generated_at,
         "environment": args.environment,
         "mode": args.mode,
         "prior_phases": [
             {"phase": item.get("phase"), "overall_status": item.get("overall_status"), "generated_at": item.get("generated_at") or item.get("finished_at")}
             for item in prior
         ],
-        "ansible_recap": parse_recap(args.ansible_output.read_text(encoding="utf-8", errors="replace")),
+        "ansible_recap": recap,
         "checks": checks,
         "facts": facts,
         "runtime": {key: runtime.get(key) for key in ("node", "kubelet_version", "components", "smoke_namespace")},
-        "overall_status": "fail" if failed else ("preinstall_ready" if pending else "pass"),
+        "lifecycle": {
+            "runs": lifecycle_runs[-20:],
+            "controlled_restart": existing.get("lifecycle", {}).get("controlled_restart"),
+            "reboot": existing.get("lifecycle", {}).get("reboot"),
+        },
+        "overall_status": overall_status,
     }
     rendered = json.dumps(report, sort_keys=True)
     if FORBIDDEN.search(rendered):

@@ -12,11 +12,12 @@ import yaml
 
 
 NAMESPACE = "platform-install-smoke"
-IMAGE = "docker.io/library/busybox:1.36.1"
+IMAGE = "docker.io/library/busybox:1.36.1@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662"
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--mode", choices=("check", "apply"), required=True)
     parser.add_argument("--platform", type=pathlib.Path, required=True)
     parser.add_argument("--repository", type=pathlib.Path, required=True)
     parser.add_argument("--facts", type=pathlib.Path, required=True)
@@ -59,7 +60,7 @@ def component_is_ready(system_pods, name):
     )
 
 
-def smoke(kubeconfig, platform):
+def smoke(kubeconfig, platform, mutate):
     checks = []
     deadline = time.monotonic() + 180
     node = None
@@ -89,6 +90,9 @@ def smoke(kubeconfig, platform):
     if not all(components.values()):
         raise RuntimeError("one or more bundled k3s components did not become Ready")
     checks.append({"id": "k3s.runtime.components", "status": "pass", "evidence": "Bundled DNS, ingress, metrics, and local storage components are Ready", "remediation": ""})
+
+    if not mutate:
+        return checks, node["metadata"]["name"], kubelet_version, components
 
     run(kubeconfig, "delete", "namespace", NAMESPACE, "--ignore-not-found=true", "--wait=true", check=False)
     run(kubeconfig, "create", "namespace", NAMESPACE)
@@ -152,7 +156,7 @@ def main():
     args.report.parent.mkdir(parents=True, exist_ok=True)
     platform = yaml.safe_load(args.platform.read_text(encoding="utf-8"))
     facts = json.loads(args.facts.read_text(encoding="utf-8"))
-    report = {"smoke_namespace": NAMESPACE, "checks": []}
+    report = {"smoke_namespace": NAMESPACE if args.mode == "apply" else None, "checks": []}
     if facts.get("phase_state") == "preinstall_ready":
         report["checks"].append({"id": "k3s.runtime.available", "status": "pending", "evidence": "Runtime checks await explicit installation", "remediation": "Run explicit apply through k3s-installation"})
         report["overall_status"] = "preinstall_ready"
@@ -162,17 +166,18 @@ def main():
 
     kubeconfig = args.repository / platform["k3s"]["kubeconfig_output"]
     try:
-        checks, node, version, components = smoke(kubeconfig, platform)
+        checks, node, version, components = smoke(kubeconfig, platform, args.mode == "apply")
         report.update({"checks": checks, "node": node, "kubelet_version": version, "components": components, "overall_status": "pass"})
     except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired, json.JSONDecodeError, yaml.YAMLError) as exc:
         print(f"Phase 4 runtime validation failed: {exc}", file=sys.stderr)
         report["checks"].append({"id": "k3s.runtime.completed", "status": "fail", "evidence": type(exc).__name__, "remediation": "Inspect k3s service and pod events; do not disable UFW to bypass networking failures."})
         report["overall_status"] = "fail"
     finally:
-        try:
-            run(kubeconfig, "delete", "namespace", NAMESPACE, "--ignore-not-found=true", "--wait=true", timeout=180, check=False)
-        except (OSError, subprocess.TimeoutExpired):
-            pass
+        if args.mode == "apply":
+            try:
+                run(kubeconfig, "delete", "namespace", NAMESPACE, "--ignore-not-found=true", "--wait=true", timeout=180, check=False)
+            except (OSError, subprocess.TimeoutExpired):
+                pass
     args.report.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(f"Phase 4 runtime: {report['overall_status']}")
     return 0 if report["overall_status"] == "pass" else 1

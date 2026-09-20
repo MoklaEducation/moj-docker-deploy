@@ -72,6 +72,14 @@
   changed_when: false
   failed_when: false
 
+- name: Read k3s service start identity before convergence
+  ansible.builtin.command:
+    argv: [systemctl, show, k3s, --property=ExecMainStartTimestampMonotonic, --value]
+  register: k3s_service_start_before
+  check_mode: false
+  changed_when: false
+  failed_when: false
+
 - name: Inspect existing k3s listeners
   ansible.builtin.command:
     argv: [ss, -H, -lntup]
@@ -111,7 +119,9 @@
   ansible.builtin.assert:
     that:
       - k3s_existing_version.rc == 0
-      - k3s.version in k3s_existing_version.stdout
+      - k3s_existing_version.stdout_lines | length > 0
+      - k3s_existing_version.stdout_lines[0].split() | length >= 3
+      - k3s_existing_version.stdout_lines[0].split()[2] == k3s.version
     fail_msg: The installed k3s version differs from the declared release; use a future explicit upgrade or rebuild workflow.
   when: k3s_existing_paths.results[6].stat.exists
 

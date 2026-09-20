@@ -234,6 +234,7 @@ phase4_runtime_status=1
 if (( phase4_status == 0 )); then
   set +e
   python3 "$K3S_RUNTIME" \
+    --mode "$action" \
     --platform "$environment_dir/platform.yml" \
     --repository "$REPO_DIR" \
     --facts "$phase4_facts_path" \
