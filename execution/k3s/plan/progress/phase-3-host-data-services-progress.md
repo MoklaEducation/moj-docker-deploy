@@ -19,6 +19,174 @@ The development completion gate is satisfied. The services remain containerized,
 passwords remain SOPS-backed, listeners remain private/non-wildcard, and implicit data
 deletion or adoption remains prohibited.
 
+## Ownership Modes
+
+For test/development machines, `provisioning_mode: helper-managed` authorizes the
+repository helper to manage local Compose services, files, runtime credentials, and UFW
+rules. The current development profile uses authenticated plaintext on private listeners;
+TLS, systemd, and backup are disabled.
+
+The production contract is externally managed. MariaDB, Redis, backup storage,
+certificates, credentials, endpoint lifecycle, upgrades, recovery, and rotation are
+supplied and operated outside this repository. Configure `provisioning_mode: external`
+with private endpoints, TLS, and least-privilege probe credentials. In external mode,
+run only the check flow; repository-managed provisioning is refused.
+
+## Operational Order
+
+### 1. Prepare the controller and environment
+
+From the repository root, select the environment and load the controller paths:
+
+```bash
+ENVIRONMENT="test"
+K3S_DIR="$PWD/execution/k3s"
+export PATH="$K3S_DIR/.controller-venv/bin:$PATH"
+export ANSIBLE_CONFIG="$K3S_DIR/host/ansible.cfg"
+export SOPS_AGE_KEY_FILE="$K3S_DIR/environments/$ENVIRONMENT/age-identity.txt"
+SECRETS_FILE="$K3S_DIR/environments/$ENVIRONMENT/secrets.sops.yml"
+
+if ! ./execution/k3s/operations/setup/controller.sh check; then
+  ./execution/k3s/operations/setup/controller.sh install
+  ./execution/k3s/operations/setup/controller.sh check
+fi
+
+test -r "$SOPS_AGE_KEY_FILE" || {
+  echo "Age identity is missing or unreadable: $SOPS_AGE_KEY_FILE" >&2
+  exit 1
+}
+test -r "$SECRETS_FILE" || {
+  echo "Encrypted secrets are missing or unreadable: $SECRETS_FILE" >&2
+  exit 1
+}
+```
+
+`controller.sh install` installs the repository-pinned Python dependencies, age, SOPS,
+and Ansible collections when the initial non-mutating check finds them absent.
+
+Review `platform.yml` before provisioning. For this host, confirm the development
+profile, `helper-managed` mode, private address `192.168.1.151`, allowed client CIDRs,
+pinned image digests, runtime IDs, data paths, and disabled TLS/systemd/backup controls.
+
+If credentials need to be initialized or rotated, create a restrictive temporary YAML
+file outside Git and use `encrypt-secrets`; do not print decrypted values:
+
+```bash
+./execution/k3s/operations/data-services/data-services encrypt-secrets \
+  --environment "$ENVIRONMENT" --from /secure/temporary/secrets.yml --remove-source
+```
+
+### 2. Satisfy apply preconditions
+
+Before the first helper-managed setup:
+
+- confirm recovery-console access;
+- review existing MariaDB/Redis services, containers, configuration, and target paths;
+- decide explicitly whether existing state is rejected or handled by a separate migration;
+- confirm the configured private address is assigned to the host; and
+- confirm SOPS can decrypt the environment secret document with the selected age identity.
+
+The role refuses implicit adoption of unmanaged services or non-empty unmarked data
+directories. Do not delete or reset data to bypass that guard.
+
+### 3. Provision the development services
+
+Run the explicit setup action, not `check`, for a first deployment. Setup executes the
+ordered Phase 1 preflight, Phase 2 host baseline, Phase 3 desired state, container health,
+private-listener checks, and authenticated protocol probes:
+
+```bash
+./execution/k3s/operations/data-services/data-services setup \
+  --environment "$ENVIRONMENT" --provision-host-services
+```
+
+A successful run must end with both `Phase 3 runtime services: pass` and
+`Phase 3 host data services: pass`.
+
+### 4. Verify an existing deployment
+
+Use the non-provisioning check after setup, during routine validation, or for externally
+managed endpoints. It validates configuration, encrypted secrets, the prerequisite
+phases, and live MariaDB/Redis behavior without converging services:
+
+```bash
+./execution/k3s/operations/data-services/data-services check \
+  --environment "$ENVIRONMENT"
+```
+
+On a fresh helper-managed host with no services, this command is expected to fail its
+live probes; it is not a provisioning preview.
+
+### 5. Reapply and verify repeatability
+
+First repeat setup without changing configuration, secrets, or managed files. The
+following acceptance sequence records container identity, creates a temporary MariaDB
+marker through the mounted client configuration, performs the unchanged setup, compares
+identity and start timestamps, verifies persistence, and removes the temporary database:
+
+```bash
+set -euo pipefail
+
+PROJECT_NAME="mokla-$ENVIRONMENT"
+MARIADB_CONTAINER="$PROJECT_NAME-mariadb-1"
+REDIS_CONTAINER="$PROJECT_NAME-redis-1"
+REPEATABILITY_DIR="$(mktemp -d)"
+BEFORE_STATE="$REPEATABILITY_DIR/before"
+AFTER_STATE="$REPEATABILITY_DIR/after"
+
+cleanup_repeatability_check() {
+  docker exec "$MARIADB_CONTAINER" mariadb \
+    --defaults-extra-file=/run/secrets/mariadb-health.cnf \
+    -e 'DROP DATABASE IF EXISTS mokla_phase3_acceptance;' \
+    >/dev/null 2>&1 || true
+  rm -rf "$REPEATABILITY_DIR"
+}
+trap cleanup_repeatability_check EXIT
+
+docker inspect --format '{{.Name}} {{.Id}} {{.State.StartedAt}}' \
+  "$MARIADB_CONTAINER" "$REDIS_CONTAINER" >"$BEFORE_STATE"
+
+docker exec -i "$MARIADB_CONTAINER" mariadb \
+  --defaults-extra-file=/run/secrets/mariadb-health.cnf <<'SQL'
+CREATE DATABASE IF NOT EXISTS mokla_phase3_acceptance;
+CREATE TABLE IF NOT EXISTS mokla_phase3_acceptance.marker
+  (value VARCHAR(32) PRIMARY KEY);
+INSERT IGNORE INTO mokla_phase3_acceptance.marker
+  VALUES ('phase3-repeatability');
+SQL
+
+./execution/k3s/operations/data-services/data-services setup \
+  --environment "$ENVIRONMENT" --provision-host-services
+
+docker inspect --format '{{.Name}} {{.Id}} {{.State.StartedAt}}' \
+  "$MARIADB_CONTAINER" "$REDIS_CONTAINER" >"$AFTER_STATE"
+cmp "$BEFORE_STATE" "$AFTER_STATE"
+
+docker exec -i "$MARIADB_CONTAINER" mariadb \
+  --defaults-extra-file=/run/secrets/mariadb-health.cnf <<'SQL'
+SELECT value FROM mokla_phase3_acceptance.marker;
+DROP DATABASE mokla_phase3_acceptance;
+SQL
+```
+
+Acceptance requires setup to report `changed=0`, `cmp` to return success, and the query
+to print `phase3-repeatability`. A later managed configuration or credential change may
+legitimately cause one controlled Compose recreation; run the unchanged-input sequence
+again after convergence to establish the new stable baseline.
+
+### 6. Use recovery helpers only when applicable
+
+`repair-test-permissions` exists only for hosts affected by the original root-only Redis
+mount deployment. It verifies repository ownership markers and adjusts managed
+permissions without restarting services or deleting data:
+
+```bash
+./execution/k3s/operations/data-services/repair-test-permissions \
+  --environment test --apply-permission-repair
+```
+
+It is not part of normal setup, routine validation, or production operation.
+
 ## Status Snapshot
 
 - Phase 1, Phase 2, and the Phase 3 development profile pass on `192.168.1.151`.
@@ -35,6 +203,24 @@ deletion or adoption remains prohibited.
   `not_applicable` for development. They remain mandatory production design work.
 - `provisioning_mode` separates explicit helper-managed setup from externally managed
   production endpoints. Setup requires `--provision-host-services`.
+
+## Validation Results
+
+- Final non-mutating check: Phase 1 `ok=16 changed=0 failed=0`; Phase 2
+  `ok=76 changed=0 failed=0 skipped=5`; Phase 3 Ansible
+  `ok=15 changed=0 failed=0 skipped=31`; both live protocol probes passed.
+- Converging apply: `ok=34 changed=2 unreachable=0 failed=0 skipped=14`.
+- Immediate repeated setup: `ok=33 changed=0 unreachable=0 failed=0 skipped=13`.
+- Both setup runs reported `Phase 3 runtime services: pass` and
+  `Phase 3 host data services: pass`.
+- Before and after the second setup, MariaDB retained container ID prefix `5be94f022f8`
+  and start time `2026-09-20T02:08:37.097934817Z`; Redis retained ID prefix
+  `e7372267e4b` and start time `2026-09-20T02:08:37.095680955Z`.
+- A temporary `phase3-repeatability` MariaDB marker survived the second setup and its
+  acceptance database was removed afterward.
+- All 55 k3s operation tests passed: 40 validation, 8 backup/restore safety, 2 controller
+  setup, and 5 data-service helper tests, with 1 expected skip.
+- Tracked shell syntax, Ansible syntax, `git diff --check`, and VS Code diagnostics passed.
 
 ## Implementation Inventory
 
@@ -79,87 +265,12 @@ execution/k3s/
   plan/progress/phase-3-host-data-services-progress.md
 ```
 
-The role owns precondition and adoption guards, offline rendering, separated filesystem
-and secret roots, host-networked Compose services, exact UFW inputs, systemd lifecycle,
-health checks, logical backup and retention ordering, and isolated restore cleanup.
-Applications, databases, users, grants, schemas, k3s, and Kubernetes resources remain
-outside this implementation.
-
-## Ownership Modes
-
-The production contract is externally managed. MariaDB, Redis, restic/backup storage,
-certificates, passwords, endpoint lifecycle, upgrades, recovery, and rotation are supplied
-and operated outside this repository. Configure `provisioning_mode: external` with the
-private connection details, CA, and least-privilege probe credentials. In this mode the
-check flow owns only authenticated TLS health validation (`SELECT 1` and `PING`) and
-redacted evidence; it skips local Compose, systemd, filesystem, UFW, backup, certificate,
-credential, and service lifecycle management.
-
-For test/development machines, `helper-managed` mode and the certificate/secret helpers
-provide a fast bootstrap path. That convenience does not redefine production ownership.
-
-## Validation Results
-
-- Converging apply: `ok=34 changed=2 unreachable=0 failed=0 skipped=14`.
-- Immediate repeated setup: `ok=33 changed=0 unreachable=0 failed=0 skipped=13`.
-- Both runs reported `Phase 3 runtime services: pass` and
-  `Phase 3 host data services: pass`.
-- Before and after the second setup, MariaDB retained container ID prefix `5be94f022f8`
-  and start time `2026-09-20T02:08:37.097934817Z`; Redis retained ID prefix
-  `e7372267e4b` and start time `2026-09-20T02:08:37.095680955Z`.
-- A temporary `phase3-repeatability` MariaDB marker survived the second setup and its
-  acceptance database was removed afterward.
-- Phase 2 remained clean at `ok=76 changed=0 failed=0 skipped=5` after Phase 3 firewall
-  rules were installed.
-- Focused schema, configuration, secret, and runtime tests passed 27 tests; focused
-  runtime/report tests passed 9 tests; Ansible syntax validation passed.
-
-Run static validation from a fresh shell:
-
-```bash
-cd /path/to/moj-docker-deploy
-ENVIRONMENT="test"
-K3S_DIR="$PWD/execution/k3s"
-export PATH="$K3S_DIR/.controller-venv/bin:$PATH"
-export ANSIBLE_CONFIG="$K3S_DIR/host/ansible.cfg"
-export SOPS_AGE_KEY_FILE="$K3S_DIR/environments/$ENVIRONMENT/age-identity.txt"
-
-./execution/k3s/operations/setup/controller.sh check
-./execution/k3s/bootstrap.sh check --environment "$ENVIRONMENT"
-./execution/k3s/bootstrap.sh check --environment "$ENVIRONMENT" --through host-baseline
-./execution/k3s/bootstrap.sh check --environment "$ENVIRONMENT" --through host-data-services
-```
-
-## Apply Preconditions
-
-Before Phase 3 apply, provide or approve all of the following without sending secret
-values through chat:
-
-- confirmed recovery-console access; and
-- explicit disposition of existing services, containers, configuration, and target paths.
-
-The current test-only choices are a disposable Redis policy, a local restic repository,
-and test-controller PKI. They must not be promoted to production unchanged.
-
-## Operator Commands
-
-```bash
-# Non-mutating configuration and live-service validation
-./execution/k3s/operations/data-services/data-services check --environment test
-
-# Explicit test-host provisioning through the ordered Ansible phases
-./execution/k3s/operations/data-services/data-services setup \
-  --environment test --provision-host-services
-
-# Recover original test-host Redis mount ownership without deleting data
-./execution/k3s/operations/data-services/repair-test-permissions \
-  --environment test --apply-permission-repair
-```
-
-For production endpoints set `data_services.provisioning_mode: external`, supply the
-connection/TLS/probe credential contract externally, and run only the check command. The
-external mode skips local Compose, systemd, filesystem, firewall, backup/restic,
-certificate, password, and service lifecycle ownership.
+In helper-managed development mode, the role owns precondition and adoption guards,
+offline rendering, service-readable managed paths, host-networked Compose services,
+runtime credentials, exact UFW inputs, health checks, and redacted evidence. Deferred
+systemd and backup/restore implementations remain in the repository but are gated off by
+the active profile. Applications, databases, users, grants, schemas, k3s, and Kubernetes
+resources remain outside this implementation.
 
 ## Remaining Work
 
