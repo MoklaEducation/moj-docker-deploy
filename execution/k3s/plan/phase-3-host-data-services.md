@@ -1,16 +1,49 @@
 # Phase 3 Implementation Plan: Host Data Services
 
-Status: ready for implementation after Phase 2 passes.
+Status: development-enablement profile approved; production hardening deferred.
 
 ## Mission
 
-Deploy MariaDB and Redis on the same VM as the future k3s server while keeping both
-services outside Kubernetes. The services must be reproducible, privately reachable,
-observable at host level, included in encrypted off-host backup operations, and proven
-recoverable without a working Kubernetes cluster.
+Deploy disposable MariaDB and Redis containers on the same VM as the future k3s server
+while keeping both services outside Kubernetes. The immediate purpose is to prove that
+repeatable host provisioning and functional data-service connectivity are ready for the
+next k3s layers.
 
-Use systemd-managed Docker Compose with images pinned by immutable digest. Do not install
-database packages directly on the host and do not use k3s containerd for these services.
+Use Docker Compose with reviewed image versions. Do not install database server packages
+directly on the host and do not use k3s containerd for these services.
+
+## Current Delivery Profile
+
+Phase 3 currently targets a disposable test/development host, not a production data
+platform. This profile supersedes stricter requirements later in this document when
+deciding whether the current phase is complete.
+
+Required now:
+
+- one containerized MariaDB engine and one containerized Redis service;
+- repeatable, non-destructive setup through the repository helper;
+- service-specific data subdirectories under `/srv/mokla/data-services`;
+- SOPS-backed passwords without plaintext secrets in Git or command output;
+- private, non-wildcard listeners and no accidental public exposure;
+- authenticated functional probes: MariaDB executes `SELECT 1` and Redis returns `PONG`;
+- a second setup that preserves existing data and does not recreate unchanged containers;
+- Phase 1 and Phase 2 remain passing after provisioning.
+
+Deferred to a later hardening/operations dimension and not blocking Phase 3 completion:
+
+- TLS and certificate lifecycle;
+- least-privilege probe identities and strict per-service UID/GID or secret-directory
+  isolation beyond what the selected images need to run;
+- systemd supervision of Docker Compose;
+- off-host backup, schedules, retention, snapshots, restore qualification, and simulated
+  backup failures;
+- external allowed-source/denied-source network qualification;
+- production image scanning policy, monitoring integration, and disaster recovery.
+
+Existing implementation for deferred capabilities may remain if it is working and does
+not block the development profile. Simplify or disable it for this environment when that
+is the lowest-risk path. Record deferred work explicitly; do not represent the resulting
+test services as production-ready.
 
 ## Architectural Context
 
@@ -40,10 +73,8 @@ by this plan.
 - Docker Engine and Docker Compose are installed at the configured pinned versions.
 - The configured private service address is assigned to the host and is not a public or
   wildcard address.
-- Off-host backup storage and encryption-key custody have been selected.
-- SOPS/age secret delivery is operational; placeholder secrets are not accepted.
-- The operator has a tested console/recovery path and has reviewed the rendered service,
-  firewall, and backup changes.
+- SOPS/age password delivery is operational; placeholder passwords are not accepted.
+- The operator has reviewed the rendered service and basic network changes.
 - No existing MariaDB/Redis data directory or service will be adopted implicitly.
 
 If a configured target directory is non-empty, apply must stop with a migration-required
@@ -52,16 +83,13 @@ overwrite or import the current Compose data automatically.
 
 ## Goals
 
-1. Run one digest-pinned MariaDB service and one digest-pinned Redis service outside k3s.
-2. Keep service data, configuration, secrets, logs, and backup staging in explicit,
-   separately owned host paths.
-3. Restrict network access to declared administrative and future pod-network sources.
-4. Use encrypted transport for database connections.
-5. Provide health checks independent of application schemas and k3s.
-6. Create encrypted, integrity-checked off-host backups on a monitored schedule.
-7. Prove restore into isolated service instances without modifying the primary services.
-8. Preserve a stable interface that later Kubernetes `Service`/`EndpointSlice` resources
-   can consume.
+1. Run one version-pinned MariaDB service and one version-pinned Redis service outside k3s.
+2. Keep each service's data in an explicit subdirectory under the designated host root.
+3. Keep listeners private and suitable for later k3s connectivity.
+4. Provide authenticated health checks independent of application schemas and k3s.
+5. Prove repeated setup preserves service data and unchanged healthy containers.
+6. Preserve a stable interface that later Kubernetes `Service`/`EndpointSlice` resources
+  can consume.
 
 ## Non-Goals
 
@@ -70,11 +98,16 @@ overwrite or import the current Compose data automatically.
 - Creating DMOJ, Keycloak, or other application databases, users, grants, or schemas.
 - Migrating existing Compose database content.
 - Providing database replication, clustering, automatic failover, or zero downtime.
-- Backing up live MariaDB files as a substitute for a logical database backup.
 - Exposing MariaDB, Redis, admin UIs, Docker, or backup endpoints publicly.
 - Selecting application Redis durability semantics; the environment must declare them.
+- Production TLS, certificate rotation, least-privilege service identities, systemd
+  supervision, backup, snapshot, restore, retention, and disaster-recovery qualification.
 
-## Fixed Service Model
+## Deferred Hardened Service Model
+
+This section through "Failure and Rollback Behavior" preserves the original hardened
+design as future reference. Requirements in these sections apply later unless the Current
+Delivery Profile explicitly retains them now.
 
 | Concern | Decision |
 | --- | --- |
@@ -106,7 +139,7 @@ contract are explicit. Redis numbered databases are not a security or resource-i
 boundary. A later application plan that needs incompatible persistence, eviction,
 security, or lifecycle behavior must justify a separate Redis instance.
 
-## Configuration Contract
+## Deferred Hardened Configuration Reference
 
 Consume the Phase 1 environment schema. Its required data-service and backup values are
 equivalent to:
@@ -174,7 +207,7 @@ logical database or user remains an application-owned, explicitly reviewed opera
 Prefer issuing the service certificate outside the target host. Never place the CA
 private key on the host unless an accepted certificate lifecycle requires it.
 
-## Intended File Ownership
+## Existing Hardened Implementation Layout
 
 ```text
 execution/k3s/host/
@@ -218,20 +251,21 @@ Scripts hold orchestration only. Configuration and desired state remain in Ansib
 templates and environment inputs. Generated Compose, configuration, and systemd files
 are deployed under `/etc/mokla`; generated evidence remains ignored.
 
-## Operator Interface
+## Development Operator Interface
 
-Required convergence commands:
+Required development commands:
 
 ```bash
-./execution/k3s/bootstrap.sh check --environment test --through host-data-services
-./execution/k3s/bootstrap.sh apply --environment test --through host-data-services
+./execution/k3s/operations/data-services/data-services check --environment test
+./execution/k3s/operations/data-services/data-services setup \
+  --environment test --provision-host-services
 ```
 
 These commands run prerequisite phases in order. Phase 3 cannot bypass Phase 1 or a
 converged Phase 2.
 
-Required lifecycle commands may be routed through a later stable operator wrapper, but
-must have non-interactive script entry points from this phase:
+Backup and restore commands are deferred lifecycle interfaces and do not block this
+profile:
 
 ```text
 backup data-services --environment <name>
@@ -242,7 +276,7 @@ restore data-services --environment <name> --snapshot <id> --target <isolated-ta
 Restore must require an explicit snapshot and isolated target. Restoring over primary
 paths is outside Phase 3 and must be rejected.
 
-## Required Host State
+## Deferred Hardened Host State
 
 ### Filesystem separation
 
@@ -327,7 +361,7 @@ and backup policy.
   test alone is insufficient.
 - Do not weaken Phase 2 SSH, API, or ingress rules.
 
-## Backup Design
+## Deferred Backup Design
 
 ### MariaDB
 
@@ -361,7 +395,7 @@ back up only the sanitized configuration and policy metadata.
 - Record last-success timestamp in a root-owned status file suitable for node-exporter
   textfile collection later.
 
-## Restore Qualification
+## Deferred Restore Qualification
 
 The required Phase 3 restore test is isolated and destructive only to its dedicated test
 paths:
@@ -382,7 +416,7 @@ paths:
 The primary services must remain healthy and available throughout the isolated restore
 test. A later full-host recovery phase will test rebuilding onto a clean VM.
 
-## Idempotence Requirements
+## Repeatability and Deferred Idempotence Reference
 
 - A second apply changes no Compose, service configuration, systemd, firewall, secret,
   ownership, or directory state when inputs are unchanged.
@@ -396,7 +430,7 @@ test. A later full-host recovery phase will test rebuilding onto a clean VM.
 - Check mode renders and validates intended files without starting containers, decrypting
   secrets onto the host, contacting the backup repository, or changing firewall state.
 
-## Failure and Rollback Behavior
+## Deferred Failure and Rollback Behavior
 
 - Pull and verify new images before replacing running containers.
 - Retain the previously deployed digest in evidence and provide an explicit rollback
@@ -409,7 +443,10 @@ test. A later full-host recovery phase will test rebuilding onto a clean VM.
 - Backup failure does not stop the database services, but it blocks Phase 3 completion
   and later application readiness.
 
-## Implementation Sequence
+## Deferred Hardening Sequence
+
+The sequence below documents the stronger production target. It is retained for later
+iteration and does not define completion for the current development profile.
 
 1. Add Phase 3 semantic validation for the existing environment and secret schemas.
 2. Select exact MariaDB and Redis versions/digests and record compatibility rationale.
@@ -423,7 +460,7 @@ test. A later full-host recovery phase will test rebuilding onto a clean VM.
    negative network tests on a disposable VM.
 10. Document image upgrade and existing-data adoption as separate future procedures.
 
-## Acceptance Tests
+## Development Acceptance Tests
 
 Run and record at minimum:
 
@@ -433,50 +470,42 @@ Run and record at minimum:
 ./execution/k3s/bootstrap.sh apply --environment test --through host-data-services
 ```
 
-Then invoke the implemented backup, verification, and isolated restore entry points.
-Acceptance evidence must prove:
+For the current development profile, acceptance evidence must prove:
 
-1. Both containers run the configured immutable digests and become healthy.
-2. Neither Compose service publishes a Docker port or uses a bridge-NAT exposure path.
-3. TLS and authentication succeed for an allowed client.
-4. Allowed-source connectivity succeeds and denied-source connectivity fails for both
-   service ports.
-5. No secret appears in Git, Compose rendering, process arguments, `docker inspect`,
-   ordinary logs, or evidence reports.
-6. A logical MariaDB backup and selected Redis-policy backup reach off-host restic storage
-   with checksums and metadata.
-7. Backup freshness and last-success status are machine-readable.
-8. The isolated restore recovers the MariaDB marker and expected Redis state/policy while
-   primary services remain healthy.
-9. The second apply reports no unintended changes and does not recreate healthy
-   unchanged containers.
-10. Stopping and starting the systemd unit preserves all durable state.
-11. A simulated backup upload failure returns non-zero, retains the prior snapshot, skips
-   pruning, and exposes failure status.
+1. Both containers run the configured reviewed versions and become healthy.
+2. MariaDB executes authenticated `SELECT 1`; Redis returns authenticated `PONG`.
+3. Both listeners use the configured private address and are not wildcard/public.
+4. No secret appears in Git, rendered Compose, process arguments, ordinary logs, or
+  evidence reports.
+5. The second setup preserves a test marker and does not recreate unchanged containers.
+6. Phase 1, Phase 2, and the final Phase 3 check all exit `0`.
 
-Run shell lint, YAML lint, `ansible-lint`, Ansible syntax/check mode, Compose rendering,
-and disposable-VM integration tests. Scan selected images and record accepted findings;
-do not silently substitute a newer digest during testing.
+Run available unit tests, Python and shell syntax checks, Ansible syntax/check mode,
+Compose rendering, and `git diff --check`. Report unavailable optional lint tools rather
+than installing them implicitly.
 
 ## Evidence Contract
 
-Write redacted reports under:
+Write the current redacted report under:
 
 ```text
 execution/k3s/.evidence/<environment>/phase-3-host-data-services.json
-execution/k3s/.evidence/<environment>/phase-3-backup.json
-execution/k3s/.evidence/<environment>/phase-3-restore.json
 ```
 
 Record environment and host identity, previous-phase evidence IDs, image references and
-digests, non-secret configuration hashes, service health, listening addresses, firewall
-test results, backup snapshot ID, checksums, retention result, restore target, marker
-validation, first/second-run recap, and overall status. Never record credentials, private
-keys, decrypted secret content, or secret-bearing URLs.
+versions, non-secret configuration hashes, service health, listening addresses,
+authenticated functional probe results, first/second-run repeatability, marker
+validation, and overall status. Never record credentials, decrypted secret content, or
+secret-bearing URLs. Deferred checks may be absent or `not_applicable`; they must not
+make this development profile partial or failed.
 
 ## Completion Gate
 
-Phase 3 is complete only when first and second convergence runs pass, network isolation
-is externally verified, encrypted off-host backup succeeds, isolated restore
-qualification succeeds, failure behavior is exercised, evidence is redacted, and the
-services can be recovered without k3s or application manifests.
+Phase 3 is complete for the current development profile when first and second setup runs
+pass, unchanged containers are not recreated, a persisted MariaDB marker survives the
+second run, authenticated MariaDB and Redis probes pass on private listeners, Phase 1 and
+Phase 2 remain green, evidence is redacted, and the final public Phase 3 check exits `0`.
+
+Completion means the disposable services are sufficient to unblock k3s-layer
+development. It does not assert production security, backup, restore, monitoring, or
+disaster-recovery readiness; those remain explicit later hardening work.

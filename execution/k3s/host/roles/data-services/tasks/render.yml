@@ -21,8 +21,10 @@
       - "'ports' not in data_services_compose_definition.services.redis"
       - data_services_compose_definition.services.mariadb.image == data_services.mariadb.image
       - data_services_compose_definition.services.redis.image == data_services.redis.image
-      - "'require_secure_transport = ON' in data_services_rendered_mariadb"
-      - "'tls-port ' ~ (data_services.redis.port | string) in data_services_rendered_redis"
-      - "'ExecStop=' in data_services_rendered_unit"
-      - "' down' not in data_services_rendered_unit"
+      - "data_services.tls.enabled or 'require_secure_transport = OFF' in data_services_rendered_mariadb"
+      - "data_services.tls.enabled or 'port ' ~ (data_services.redis.port | string) in data_services_rendered_redis"
+      - "not data_services.tls.enabled or 'require_secure_transport = ON' in data_services_rendered_mariadb"
+      - "not data_services.tls.enabled or 'tls-port ' ~ (data_services.redis.port | string) in data_services_rendered_redis"
+      - "not data_services.systemd_supervision_enabled or 'ExecStop=' in data_services_rendered_unit"
+      - "not data_services.systemd_supervision_enabled or ' down' not in data_services_rendered_unit"
     fail_msg: Rendered Phase 3 definitions violate the service isolation contract.

@@ -1,5 +1,9 @@
 # Phase 3 AI Continuation Handoff Prompt
 
+> Superseded for the current development profile by
+> [phase-3-development-completion-prompt.md](phase-3-development-completion-prompt.md).
+> Retain this document only as historical production-hardening context.
+
 Copy the prompt below into a new coding-agent session opened at the repository root.
 
 ```text

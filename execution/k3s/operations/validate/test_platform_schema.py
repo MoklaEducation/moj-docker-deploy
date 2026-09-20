@@ -28,6 +28,12 @@ class PlatformSchemaTests(unittest.TestCase):
     def test_test_environment_matches_complete_contract(self):
         self.assertEqual([], list(VALIDATOR.iter_errors(PLATFORM)))
 
+    def test_development_profile_does_not_require_deferred_fields(self):
+        platform = copy.deepcopy(PLATFORM)
+        platform["data_services"]["tls"] = {"enabled": False}
+        platform["backup"] = {"enabled": False}
+        self.assertEqual([], list(VALIDATOR.iter_errors(platform)))
+
     def test_phase_2_host_fields_are_required(self):
         for field in (
             "config_root", "state_root", "evidence_root", "minimum_free_disk_percent",
@@ -49,13 +55,13 @@ class PlatformSchemaTests(unittest.TestCase):
 
     def test_phase_3_data_service_fields_are_required(self):
         required_fields = {
-            "data_services": ("provisioning_mode", "bind_address", "allowed_client_cidrs", "tls", "mariadb", "redis"),
+            "data_services": ("delivery_profile", "provisioning_mode", "systemd_supervision_enabled", "bind_address", "allowed_client_cidrs", "tls", "mariadb", "redis"),
             "mariadb": (
-                "image", "compatibility_rationale", "image_scan", "port", "probe_username", "probe_password_secret_key", "character_set", "collation", "data_path", "config_path",
+                "image", "compatibility_rationale", "image_scan", "port", "runtime_uid", "runtime_gid", "probe_username", "probe_password_secret_key", "character_set", "collation", "data_path", "config_path",
                 "backup_timeout_seconds", "health_timeout_seconds", "memory_limit", "cpus",
             ),
             "redis": (
-                "image", "compatibility_rationale", "image_scan", "port", "probe_username", "probe_password_secret_key", "authentication_enabled", "data_policy", "data_path", "config_path",
+                "image", "compatibility_rationale", "image_scan", "port", "runtime_uid", "runtime_gid", "probe_username", "probe_password_secret_key", "authentication_enabled", "data_policy", "data_path", "config_path",
                 "maxmemory", "maxmemory_policy", "health_timeout_seconds", "memory_limit", "cpus",
             ),
         }
@@ -69,13 +75,14 @@ class PlatformSchemaTests(unittest.TestCase):
 
     def test_phase_3_backup_fields_are_required(self):
         for field in (
-            "repository_mode", "local_repository_risk_accepted", "restic_repository",
+            "enabled", "repository_mode", "local_repository_risk_accepted", "restic_repository",
             "repository_credential_secret_keys", "staging_path", "schedule",
             "randomized_delay_seconds", "retention", "minimum_expected_frequency_hours",
             "minimum_free_space_mb", "restore",
         ):
             with self.subTest(field=field):
                 platform = copy.deepcopy(PLATFORM)
+                platform["backup"]["enabled"] = True
                 del platform["backup"][field]
                 self.assertTrue(list(VALIDATOR.iter_errors(platform)), field)
 

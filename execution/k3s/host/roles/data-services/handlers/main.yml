@@ -3,8 +3,30 @@
   ansible.builtin.systemd_service:
     daemon_reload: true
 
-- name: Restart data services
+- name: Restart systemd-supervised data services
   ansible.builtin.systemd_service:
     name: "{{ data_services_unit_name }}"
     state: restarted
-  when: not ansible_check_mode
+  listen: Restart data services
+  when:
+    - not ansible_check_mode
+    - data_services.systemd_supervision_enabled
+
+- name: Recreate development data services
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - --project-name
+      - "{{ data_services_project_name }}"
+      - --file
+      - "{{ data_services_compose_path }}"
+      - up
+      - --detach
+      - --remove-orphans
+      - --force-recreate
+      - --wait
+  listen: Restart data services
+  when:
+    - not ansible_check_mode
+    - not data_services.systemd_supervision_enabled

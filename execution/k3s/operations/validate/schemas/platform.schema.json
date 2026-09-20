@@ -63,14 +63,16 @@
     },
     "data_services": {
       "type": "object", "additionalProperties": false,
-      "required": ["provisioning_mode", "bind_address", "allowed_client_cidrs", "tls", "mariadb", "redis"],
+      "required": ["delivery_profile", "provisioning_mode", "systemd_supervision_enabled", "bind_address", "allowed_client_cidrs", "tls", "mariadb", "redis"],
       "properties": {
+        "delivery_profile": {"type": "string", "enum": ["development", "hardened"]},
         "provisioning_mode": {"type": "string", "enum": ["helper-managed", "external"]},
+        "systemd_supervision_enabled": {"type": "boolean"},
         "bind_address": {"type": "string", "format": "ipv4"},
         "allowed_client_cidrs": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
         "tls": {
           "type": "object", "additionalProperties": false,
-          "required": ["enabled", "minimum_version", "server_certificate_secret_key", "server_private_key_secret_key", "ca_certificate_secret_key", "renewal_owner"],
+          "required": ["enabled"],
           "properties": {
             "enabled": {"type": "boolean"},
             "minimum_version": {"type": "string", "enum": ["TLSv1.2", "TLSv1.3"]},
@@ -78,16 +80,22 @@
             "server_private_key_secret_key": {"type": "string", "minLength": 1},
             "ca_certificate_secret_key": {"type": "string", "minLength": 1},
             "renewal_owner": {"type": "string", "minLength": 1}
-          }
+          },
+          "allOf": [{
+            "if": {"properties": {"enabled": {"const": true}}, "required": ["enabled"]},
+            "then": {"required": ["minimum_version", "server_certificate_secret_key", "server_private_key_secret_key", "ca_certificate_secret_key", "renewal_owner"]}
+          }]
         },
         "mariadb": {
           "type": "object", "additionalProperties": false,
-          "required": ["image", "compatibility_rationale", "image_scan", "port", "probe_username", "probe_password_secret_key", "character_set", "collation", "data_path", "config_path", "backup_timeout_seconds", "health_timeout_seconds", "memory_limit", "cpus"],
+          "required": ["image", "compatibility_rationale", "image_scan", "port", "runtime_uid", "runtime_gid", "probe_username", "probe_password_secret_key", "character_set", "collation", "data_path", "config_path", "backup_timeout_seconds", "health_timeout_seconds", "memory_limit", "cpus"],
           "properties": {
             "image": {"type": "string", "minLength": 1},
             "compatibility_rationale": {"type": "string", "minLength": 1},
             "image_scan": {"$ref": "#/$defs/image_scan"},
             "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+            "runtime_uid": {"type": "integer", "minimum": 1},
+            "runtime_gid": {"type": "integer", "minimum": 1},
             "probe_username": {"type": "string", "minLength": 1},
             "probe_password_secret_key": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
             "character_set": {"type": "string", "minLength": 1},
@@ -102,12 +110,14 @@
         },
         "redis": {
           "type": "object", "additionalProperties": false,
-          "required": ["image", "compatibility_rationale", "image_scan", "port", "probe_username", "probe_password_secret_key", "authentication_enabled", "data_policy", "data_path", "config_path", "maxmemory", "maxmemory_policy", "health_timeout_seconds", "memory_limit", "cpus"],
+          "required": ["image", "compatibility_rationale", "image_scan", "port", "runtime_uid", "runtime_gid", "probe_username", "probe_password_secret_key", "authentication_enabled", "data_policy", "data_path", "config_path", "maxmemory", "maxmemory_policy", "health_timeout_seconds", "memory_limit", "cpus"],
           "properties": {
             "image": {"type": "string", "minLength": 1},
             "compatibility_rationale": {"type": "string", "minLength": 1},
             "image_scan": {"$ref": "#/$defs/image_scan"},
             "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+            "runtime_uid": {"type": "integer", "minimum": 1},
+            "runtime_gid": {"type": "integer", "minimum": 1},
             "probe_username": {"type": "string", "minLength": 1},
             "probe_password_secret_key": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
             "authentication_enabled": {"type": "boolean"},
@@ -125,8 +135,9 @@
     },
     "backup": {
       "type": "object", "additionalProperties": false,
-      "required": ["repository_mode", "local_repository_risk_accepted", "restic_repository", "repository_credential_secret_keys", "staging_path", "schedule", "randomized_delay_seconds", "retention", "minimum_expected_frequency_hours", "minimum_free_space_mb", "restore"],
+      "required": ["enabled"],
       "properties": {
+        "enabled": {"type": "boolean"},
         "repository_mode": {"type": "string", "enum": ["off-host", "local-development"]},
         "local_repository_risk_accepted": {"type": "boolean"},
         "restic_repository": {"type": "string", "minLength": 1},
@@ -155,7 +166,11 @@
             "redis_port": {"type": "integer", "minimum": 1, "maximum": 65535}
           }
         }
-      }
+      },
+      "allOf": [{
+        "if": {"properties": {"enabled": {"const": true}}, "required": ["enabled"]},
+        "then": {"required": ["repository_mode", "local_repository_risk_accepted", "restic_repository", "repository_credential_secret_keys", "staging_path", "schedule", "randomized_delay_seconds", "retention", "minimum_expected_frequency_hours", "minimum_free_space_mb", "restore"]}
+      }]
     },
     "k3s": {"type": "object", "required": ["version"], "properties": {"version": {"type": "string", "minLength": 1}}, "additionalProperties": true}
   },

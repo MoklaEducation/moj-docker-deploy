@@ -37,11 +37,13 @@ docker:
   log_max_size: 20m
   log_max_files: 5
 data_services:
+  delivery_profile: development
   provisioning_mode: helper-managed
+  systemd_supervision_enabled: false
   bind_address: 192.168.1.151
   allowed_client_cidrs: [10.42.0.0/16, 192.168.1.0/24]
   tls:
-    enabled: true
+    enabled: false
     minimum_version: TLSv1.2
     server_certificate_secret_key: data_services_tls_certificate
     server_private_key_secret_key: data_services_tls_private_key
@@ -52,6 +54,8 @@ data_services:
     compatibility_rationale: MariaDB 11.8 LTS official linux/amd64 image selected for the initial test platform
     image_scan: {scanner: Trivy 0.66.0, scanned_at: "2026-09-19", findings: "Test acceptance: 308 total; 1 critical and 25 high, all 26 fixable", approved_by: test-environment-owner}
     port: 3306
+    runtime_uid: 999
+    runtime_gid: 999
     probe_username: root
     probe_password_secret_key: mariadb_root_password
     character_set: utf8mb4
@@ -67,6 +71,8 @@ data_services:
     compatibility_rationale: Redis 8.2 Alpine official linux/amd64 image minimizes the package surface for disposable cache and queue use in test
     image_scan: {scanner: Trivy 0.66.0, scanned_at: "2026-09-19", findings: "Test acceptance: 78 total; 2 critical and 21 high, all 23 high or critical fixable", approved_by: test-environment-owner}
     port: 6379
+    runtime_uid: 999
+    runtime_gid: 1000
     probe_username: default
     probe_password_secret_key: redis_password
     authentication_enabled: true
@@ -79,6 +85,7 @@ data_services:
     memory_limit: 384M
     cpus: 0.5
 backup:
+  enabled: false
   repository_mode: local-development
   local_repository_risk_accepted: true
   restic_repository: /srv/mokla/restic-repository

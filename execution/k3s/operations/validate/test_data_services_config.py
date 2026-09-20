@@ -19,6 +19,10 @@ PLATFORM = yaml.safe_load((ROOT / "environments/test/platform.yml").read_text(en
 
 def valid_platform():
     platform = copy.deepcopy(PLATFORM)
+    platform["data_services"]["delivery_profile"] = "hardened"
+    platform["data_services"]["systemd_supervision_enabled"] = True
+    platform["data_services"]["tls"]["enabled"] = True
+    platform["backup"]["enabled"] = True
     platform["host_address"] = "10.20.30.40"
     platform["data_services"]["bind_address"] = "10.20.30.40"
     platform["data_services"]["tls"]["renewal_owner"] = "platform-operator"
@@ -49,6 +53,16 @@ class DataServicesConfigTests(unittest.TestCase):
 
     def test_current_test_configuration_passes(self):
         self.assertEqual([], MODULE.validate_configuration(PLATFORM))
+
+    def test_development_profile_rejects_hardened_subsystems(self):
+        platform = copy.deepcopy(PLATFORM)
+        platform["data_services"]["tls"]["enabled"] = True
+        platform["data_services"]["systemd_supervision_enabled"] = True
+        platform["backup"]["enabled"] = True
+        check_ids = {check_id for check_id, _ in MODULE.validate_configuration(platform)}
+        self.assertIn("data_services.tls.development_disabled", check_ids)
+        self.assertIn("data_services.systemd.development_disabled", check_ids)
+        self.assertIn("backup.development_disabled", check_ids)
 
     def test_public_wildcard_and_mismatched_bind_addresses_are_rejected(self):
         for address, check_id in (

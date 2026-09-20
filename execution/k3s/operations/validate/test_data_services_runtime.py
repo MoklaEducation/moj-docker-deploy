@@ -54,9 +54,10 @@ class DataServicesRuntimeTests(unittest.TestCase):
     def setUp(self):
         self.platform = {
             "data_services": {
+                "delivery_profile": "hardened",
                 "provisioning_mode": "external",
                 "bind_address": "10.20.30.40",
-                "tls": {"minimum_version": "TLSv1.2", "ca_certificate_secret_key": "ca"},
+                "tls": {"enabled": True, "minimum_version": "TLSv1.2", "ca_certificate_secret_key": "ca"},
                 "mariadb": {"port": 3306, "probe_username": "monitor", "probe_password_secret_key": "mariadb_probe_password"},
                 "redis": {"port": 6379, "probe_username": "monitor", "probe_password_secret_key": "redis_probe_password"},
             }
@@ -85,6 +86,21 @@ class DataServicesRuntimeTests(unittest.TestCase):
             rendered = report_path.read_text(encoding="utf-8")
         self.assertEqual("fail", status)
         self.assertNotIn("do-not-leak", rendered)
+
+    def test_plaintext_authenticated_protocol_checks(self):
+        self.platform["data_services"]["tls"] = {"enabled": False}
+        self.platform["data_services"]["delivery_profile"] = "development"
+        self.values["mariadb_probe_password"] += "\n"
+        self.values["redis_probe_password"] += "\n"
+        redis_client = mock.Mock(side_effect=FakeRedis)
+        with mock.patch.object(MODULE.pymysql, "connect", return_value=FakeConnection()) as mariadb_connect, \
+            mock.patch.object(MODULE.redis, "Redis", redis_client):
+            checks = MODULE.validate_runtime(self.platform, self.values)
+        self.assertEqual(["pass", "pass"], [check["status"] for check in checks])
+        self.assertNotIn("ssl", mariadb_connect.call_args.kwargs)
+        self.assertNotIn("ssl", redis_client.call_args.kwargs)
+        self.assertEqual("maria-secret", mariadb_connect.call_args.kwargs["password"])
+        self.assertEqual("redis-secret", redis_client.call_args.kwargs["password"])
 
 
 if __name__ == "__main__":

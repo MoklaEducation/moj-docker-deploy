@@ -25,8 +25,12 @@ class DataServicesSecretsTests(unittest.TestCase):
     def test_complete_non_placeholder_contract_passes(self):
         self.assertEqual([], MODULE.validate_values(PLATFORM, expected_values(PLATFORM)))
 
+    def test_development_profile_requires_only_service_passwords(self):
+        self.assertEqual({"mariadb_root_password", "redis_password"}, MODULE.required_secret_keys(PLATFORM))
+
     def test_provider_specific_keys_are_required(self):
         platform = copy.deepcopy(PLATFORM)
+        platform["backup"]["enabled"] = True
         platform["backup"]["repository_credential_secret_keys"] = ["restic_aws_access_key_id"]
         values = expected_values(platform)
         del values["restic_aws_access_key_id"]

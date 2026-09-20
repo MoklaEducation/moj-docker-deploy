@@ -123,18 +123,27 @@ def validate_configuration(platform):
         if network.version != 4 or network.prefixlen == 0 or not any(network.subnet_of(parent) for parent in rfc1918):
             errors.append(("data_services.allowed_client_cidrs.private", f"client CIDR must be restricted private IPv4: {value}"))
 
+    development_profile = data_services["delivery_profile"] == "development"
     tls = data_services["tls"]
-    if not tls["enabled"]:
-        errors.append(("data_services.tls.required", "TLS must be enabled"))
-    if is_placeholder(tls["renewal_owner"]):
-        errors.append(("data_services.tls.renewal_owner", "certificate renewal owner must be explicit"))
-    secret_key_names = {
-        tls["server_certificate_secret_key"],
-        tls["server_private_key_secret_key"],
-        tls["ca_certificate_secret_key"],
-    }
-    if len(secret_key_names) != 3 or any(is_placeholder(value) for value in secret_key_names):
-        errors.append(("data_services.tls.secret_keys", "TLS secret key references must be distinct and non-placeholder"))
+    if development_profile:
+        if tls["enabled"]:
+            errors.append(("data_services.tls.development_disabled", "TLS must be disabled for the development profile"))
+        if data_services["systemd_supervision_enabled"]:
+            errors.append(("data_services.systemd.development_disabled", "systemd supervision must be disabled for the development profile"))
+        if backup["enabled"]:
+            errors.append(("backup.development_disabled", "backup automation must be disabled for the development profile"))
+    elif not tls["enabled"]:
+        errors.append(("data_services.tls.required", "TLS must be enabled for the hardened profile"))
+    if tls["enabled"]:
+        if is_placeholder(tls["renewal_owner"]):
+            errors.append(("data_services.tls.renewal_owner", "certificate renewal owner must be explicit"))
+        secret_key_names = {
+            tls["server_certificate_secret_key"],
+            tls["server_private_key_secret_key"],
+            tls["ca_certificate_secret_key"],
+        }
+        if len(secret_key_names) != 3 or any(is_placeholder(value) for value in secret_key_names):
+            errors.append(("data_services.tls.secret_keys", "TLS secret key references must be distinct and non-placeholder"))
 
     validate_image("data_services.mariadb.image.pinned", mariadb["image"], errors)
     validate_image("data_services.redis.image.pinned", redis["image"], errors)
@@ -175,30 +184,32 @@ def validate_configuration(platform):
     if any(path == docker_root or docker_root in path.parents for key, path in actual_paths.items() if ".data_path" in key):
         errors.append(("data_services.paths.outside_docker", "service data paths must be outside Docker's data root"))
 
-    validate_repository(platform, actual_paths, errors)
-    if not SCHEDULE_PATTERN.fullmatch(backup["schedule"]):
-        errors.append(("backup.schedule.daily_utc", "schedule must select an explicit daily UTC time"))
-    if any(is_placeholder(value) for value in backup["repository_credential_secret_keys"]):
-        errors.append(("backup.repository.secret_keys", "repository credential key names must be non-placeholder"))
+    if backup["enabled"]:
+        validate_repository(platform, actual_paths, errors)
+        if not SCHEDULE_PATTERN.fullmatch(backup["schedule"]):
+            errors.append(("backup.schedule.daily_utc", "schedule must select an explicit daily UTC time"))
+        if any(is_placeholder(value) for value in backup["repository_credential_secret_keys"]):
+            errors.append(("backup.repository.secret_keys", "repository credential key names must be non-placeholder"))
 
-    restore = backup["restore"]
-    restore_target = pathlib.PurePosixPath(restore["target_root"])
-    primary_paths = {actual_paths["data_services.mariadb.data_path"], actual_paths["data_services.redis.data_path"]}
-    if restore_target == storage_root or storage_root not in restore_target.parents:
-        errors.append(("backup.restore.target_isolated", "restore target must be a dedicated child of the storage root"))
-    if any(restore_target == path or restore_target in path.parents or path in restore_target.parents for path in primary_paths):
-        errors.append(("backup.restore.target_isolated", "restore target must not overlap primary service data"))
-    try:
-        restore_address = ipaddress.ip_address(restore["bind_address"])
-    except ValueError:
-        errors.append(("backup.restore.loopback_only", "restore bind address is invalid"))
-    else:
-        if not restore_address.is_loopback:
-            errors.append(("backup.restore.loopback_only", "restore probes must bind only to loopback"))
-    service_ports = {mariadb["port"], redis["port"]}
-    restore_ports = {restore["mariadb_port"], restore["redis_port"]}
-    if len(restore_ports) != 2 or service_ports & restore_ports:
-        errors.append(("backup.restore.ports_isolated", "restore ports must be unique and distinct from primary ports"))
+    if backup["enabled"]:
+        restore = backup["restore"]
+        restore_target = pathlib.PurePosixPath(restore["target_root"])
+        primary_paths = {actual_paths["data_services.mariadb.data_path"], actual_paths["data_services.redis.data_path"]}
+        if restore_target == storage_root or storage_root not in restore_target.parents:
+            errors.append(("backup.restore.target_isolated", "restore target must be a dedicated child of the storage root"))
+        if any(restore_target == path or restore_target in path.parents or path in restore_target.parents for path in primary_paths):
+            errors.append(("backup.restore.target_isolated", "restore target must not overlap primary service data"))
+        try:
+            restore_address = ipaddress.ip_address(restore["bind_address"])
+        except ValueError:
+            errors.append(("backup.restore.loopback_only", "restore bind address is invalid"))
+        else:
+            if not restore_address.is_loopback:
+                errors.append(("backup.restore.loopback_only", "restore probes must bind only to loopback"))
+        service_ports = {mariadb["port"], redis["port"]}
+        restore_ports = {restore["mariadb_port"], restore["redis_port"]}
+        if len(restore_ports) != 2 or service_ports & restore_ports:
+            errors.append(("backup.restore.ports_isolated", "restore ports must be unique and distinct from primary ports"))
 
     return errors
 

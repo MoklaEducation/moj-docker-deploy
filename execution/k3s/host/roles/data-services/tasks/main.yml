@@ -19,9 +19,11 @@
 
 - name: Install the systemd lifecycle
   ansible.builtin.import_tasks: systemd.yml
+  when: data_services.systemd_supervision_enabled
 
 - name: Install backup and restore operations
   ansible.builtin.import_tasks: backup.yml
+  when: backup.enabled
 
 - name: Verify data-service health and desired state
   ansible.builtin.import_tasks: verify.yml

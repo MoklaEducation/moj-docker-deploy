@@ -70,20 +70,23 @@ def validate_runtime(platform, values):
     data_services = platform["data_services"]
     tls = data_services["tls"]
     address = data_services["bind_address"]
-    ca_certificate = values[tls["ca_certificate_secret_key"]]
-    context = tls_context(ca_certificate, tls["minimum_version"])
+    tls_enabled = tls["enabled"]
+    ca_certificate = values[tls["ca_certificate_secret_key"]] if tls_enabled else None
+    context = tls_context(ca_certificate, tls["minimum_version"]) if tls_enabled else None
 
     def check_mariadb():
-        connection = pymysql.connect(
+        connection_options = dict(
             host=address,
             port=data_services["mariadb"]["port"],
             user=data_services["mariadb"]["probe_username"],
-            password=values[data_services["mariadb"]["probe_password_secret_key"]],
-            ssl=context,
+            password=values[data_services["mariadb"]["probe_password_secret_key"]].strip(),
             connect_timeout=5,
             read_timeout=5,
             write_timeout=5,
         )
+        if tls_enabled:
+            connection_options["ssl"] = context
+        connection = pymysql.connect(**connection_options)
         try:
             with connection.cursor() as cursor:
                 cursor.execute("SELECT 1")
@@ -93,25 +96,28 @@ def validate_runtime(platform, values):
             connection.close()
 
     def check_redis():
-        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8") as ca_file:
+        client_options = dict(
+            host=address,
+            port=data_services["redis"]["port"],
+            username=data_services["redis"]["probe_username"],
+            password=values[data_services["redis"]["probe_password_secret_key"]].strip(),
+            socket_connect_timeout=5,
+            socket_timeout=5,
+        )
+        ca_file = None
+        if tls_enabled:
+            ca_file = tempfile.NamedTemporaryFile(mode="w", encoding="utf-8")
             ca_file.write(ca_certificate)
             ca_file.flush()
-            client = redis.Redis(
-                host=address,
-                port=data_services["redis"]["port"],
-                username=data_services["redis"]["probe_username"],
-                password=values[data_services["redis"]["probe_password_secret_key"]],
-                ssl=True,
-                ssl_ca_certs=ca_file.name,
-                ssl_check_hostname=True,
-                socket_connect_timeout=5,
-                socket_timeout=5,
-            )
-            try:
-                if client.ping() is not True:
-                    raise RuntimeError("unexpected Redis probe result")
-            finally:
-                client.close()
+            client_options.update(ssl=True, ssl_ca_certs=ca_file.name, ssl_check_hostname=True)
+        client = redis.Redis(**client_options)
+        try:
+            if client.ping() is not True:
+                raise RuntimeError("unexpected Redis probe result")
+        finally:
+            client.close()
+            if ca_file is not None:
+                ca_file.close()
 
     checks = []
     for service, probe in (("mariadb", check_mariadb), ("redis", check_redis)):
@@ -119,7 +125,7 @@ def validate_runtime(platform, values):
         checks.append({
             "id": f"data_services.runtime.{service}",
             "status": status,
-            "evidence": f"Authenticated TLS {service} probe {'succeeded' if status == 'pass' else 'failed'} in {duration_ms} ms",
+            "evidence": f"Authenticated {'TLS ' if tls_enabled else ''}{service} probe {'succeeded' if status == 'pass' else 'failed'} in {duration_ms} ms",
             "remediation": "Verify endpoint routing, certificate identity, credentials, and service health." if status == "fail" else "",
         })
     return checks
@@ -131,6 +137,8 @@ def write_report(path, platform, checks):
         "generated_at": dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z"),
         "endpoint": platform["data_services"]["bind_address"],
         "provisioning_mode": platform["data_services"]["provisioning_mode"],
+        "delivery_profile": platform["data_services"]["delivery_profile"],
+        "tls_enabled": platform["data_services"]["tls"]["enabled"],
         "checks": checks,
         "overall_status": "pass" if all(check["status"] == "pass" for check in checks) else "fail",
     }

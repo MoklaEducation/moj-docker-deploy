@@ -6,6 +6,10 @@ remain outside Kubernetes.
 ## Test Host: Optional Provisioning
 
 Set `data_services.provisioning_mode: helper-managed` in the environment platform file.
+For the disposable development profile, set `delivery_profile: development`, disable
+TLS, systemd supervision, and backup, and retain authenticated private listeners. The
+helper recreates containers when managed bind-mounted inputs change and leaves unchanged
+containers running across repeated setup calls.
 Preview configuration and host changes without creating services:
 
 ```bash
@@ -76,6 +80,7 @@ The test-PKI helper can initialize or rotate generated test credentials and cert
 
 ## Acceptance Boundary
 
-The protocol checks run from the controller. They prove endpoint reachability, TLS,
-authentication, and basic command execution from that vantage point. Later acceptance
-must still test from an allowed k3s pod/client network and from a denied external source.
+The protocol checks run from the controller. Development proves private endpoint
+reachability, authentication, and basic command execution. Hardened/external profiles
+also require TLS; production acceptance must still test from an allowed k3s pod/client
+network and from a denied external source.

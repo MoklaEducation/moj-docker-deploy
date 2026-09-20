@@ -54,6 +54,7 @@
   vars:
     data_services_evidence:
       role_version: "{{ data_services_role_version }}"
+      delivery_profile: "{{ data_services.delivery_profile }}"
       images:
         mariadb: "{{ data_services.mariadb.image }}"
         redis: "{{ data_services.redis.image }}"
@@ -87,14 +88,30 @@
           status: "{{ 'pass' if not ansible_check_mode else 'not_applicable' }}"
           evidence: "{{ 'Both configured containers reported healthy' if not ansible_check_mode else 'Runtime health is not probed in check mode' }}"
           remediation: ""
+        - id: data_services.network.private_listeners
+          status: "{{ 'pass' if not ansible_check_mode else 'not_applicable' }}"
+          evidence: "{{ 'MariaDB and Redis listen only on the configured private address' if not ansible_check_mode else 'Listener state is not probed in check mode' }}"
+          remediation: ""
+        - id: data_services.tls.enforced
+          status: "{{ 'not_applicable' if data_services.delivery_profile == 'development' else 'pass' }}"
+          evidence: "{{ 'TLS is deferred by the development delivery profile' if data_services.delivery_profile == 'development' else 'TLS configuration passed hardened-profile validation' }}"
+          remediation: ""
+        - id: data_services.systemd.supervised
+          status: "{{ 'not_applicable' if not data_services.systemd_supervision_enabled else 'pass' }}"
+          evidence: "{{ 'Systemd supervision is deferred by the development delivery profile' if not data_services.systemd_supervision_enabled else 'Systemd supervision is enabled' }}"
+          remediation: ""
+        - id: data_services.backup.configured
+          status: "{{ 'not_applicable' if not backup.enabled else 'pass' }}"
+          evidence: "{{ 'Backup and restore are deferred by the development delivery profile' if not backup.enabled else 'Backup configuration passed validation' }}"
+          remediation: ""
         - id: data_services.network.external_allowed
-          status: pending
-          evidence: External allowed-source connectivity has not been recorded
-          remediation: Run the documented external allowed-source TLS and authentication probe.
+          status: "{{ 'not_applicable' if data_services.delivery_profile == 'development' else 'pending' }}"
+          evidence: "{{ 'External source qualification is deferred by the development delivery profile' if data_services.delivery_profile == 'development' else 'External allowed-source connectivity has not been recorded' }}"
+          remediation: "{{ '' if data_services.delivery_profile == 'development' else 'Run the documented external allowed-source TLS and authentication probe.' }}"
         - id: data_services.network.external_denied
-          status: pending
-          evidence: External denied-source isolation has not been recorded
-          remediation: Run the documented external denied-source probe.
+          status: "{{ 'not_applicable' if data_services.delivery_profile == 'development' else 'pending' }}"
+          evidence: "{{ 'External source qualification is deferred by the development delivery profile' if data_services.delivery_profile == 'development' else 'External denied-source isolation has not been recorded' }}"
+          remediation: "{{ '' if data_services.delivery_profile == 'development' else 'Run the documented external denied-source probe.' }}"
   delegate_to: localhost
   become: false
   check_mode: false

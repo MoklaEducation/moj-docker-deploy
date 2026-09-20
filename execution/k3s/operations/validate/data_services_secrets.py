@@ -29,14 +29,18 @@ def required_secret_keys(platform):
     tls = platform["data_services"]["tls"]
     data_services = platform["data_services"]
     keys = {
-        "restic_password",
         data_services["mariadb"]["probe_password_secret_key"],
         data_services["redis"]["probe_password_secret_key"],
-        tls["server_certificate_secret_key"],
-        tls["server_private_key_secret_key"],
-        tls["ca_certificate_secret_key"],
-        *platform["backup"]["repository_credential_secret_keys"],
     }
+    if tls["enabled"]:
+        keys.update((
+            tls["server_certificate_secret_key"],
+            tls["server_private_key_secret_key"],
+            tls["ca_certificate_secret_key"],
+        ))
+    if platform["backup"]["enabled"]:
+        keys.add("restic_password")
+        keys.update(platform["backup"]["repository_credential_secret_keys"])
     if data_services["provisioning_mode"] == "helper-managed":
         keys.update(("mariadb_root_password", "redis_password"))
     return keys
@@ -120,9 +124,8 @@ def main():
         print("data_services.secrets.encrypted: encrypted secret file is missing", file=sys.stderr)
         return 1
     sops_command = shutil.which(args.sops)
-    openssl_command = shutil.which(args.openssl)
-    if not sops_command or not openssl_command:
-        print("data_services.secrets.tooling: sops and openssl are required", file=sys.stderr)
+    if not sops_command:
+        print("data_services.secrets.tooling: sops is required", file=sys.stderr)
         return 1
     try:
         platform = yaml.safe_load(args.platform.read_text(encoding="utf-8"))
@@ -144,8 +147,11 @@ def main():
     except yaml.YAMLError:
         print("data_services.secrets.document: decrypted secret document is invalid YAML", file=sys.stderr)
         return 1
+    openssl_command = shutil.which(args.openssl) if platform["data_services"]["tls"]["enabled"] else None
     errors = validate_values(platform, values)
-    if not errors:
+    if platform["data_services"]["tls"]["enabled"] and not openssl_command:
+        errors.append(("data_services.secrets.tooling", "openssl is required when TLS is enabled"))
+    if not errors and platform["data_services"]["tls"]["enabled"]:
         errors.extend(validate_tls_material(platform, values, openssl_command))
     decrypted = None
     values = None

@@ -12,7 +12,7 @@ RECAP_PATTERN = re.compile(
     r"^(?P<host>\S+)\s+:\s+ok=(?P<ok>\d+)\s+changed=(?P<changed>\d+)\s+"
     r"unreachable=(?P<unreachable>\d+)\s+failed=(?P<failed>\d+)"
 )
-ALLOWED_FACT_KEYS = {"checks", "configuration_hashes", "images", "network", "role_version", "services"}
+ALLOWED_FACT_KEYS = {"checks", "configuration_hashes", "delivery_profile", "images", "network", "role_version", "services"}
 FORBIDDEN_PATTERNS = re.compile(
     r"BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY|AGE-SECRET-KEY-|ENC\[|AKIA[0-9A-Z]{16}|password\s*[=:]",
     re.IGNORECASE,
@@ -95,6 +95,8 @@ def main():
         "runtime": {
             "endpoint": runtime.get("endpoint"),
             "provisioning_mode": runtime.get("provisioning_mode"),
+            "delivery_profile": runtime.get("delivery_profile"),
+            "tls_enabled": runtime.get("tls_enabled"),
         },
         "overall_status": "fail" if failed else ("partial" if pending else "pass"),
     }

@@ -1,56 +1,40 @@
 # Phase 3 Host Data Services Progress
 
-Status: test-host provisioning partially applied; runtime authentication fixes required
+Status: development profile complete
 
 Last updated: 2026-09-20
 
 This document records verified Phase 3 implementation facts. The normative requirements
 remain in [phase-3-host-data-services.md](../phase-3-host-data-services.md).
 
+## Scope Decision
+
+On 2026-09-20, Phase 3 was narrowed to development enablement. Its purpose is to provide
+repeatable disposable MariaDB and Redis containers that unblock the k3s layers. TLS,
+strict per-service UID/GID and secret-directory isolation, systemd supervision, backup,
+snapshot, restore, retention, disaster recovery, image-policy hardening, and external
+allowed/denied network qualification are deferred and no longer block this phase.
+
+The development completion gate is satisfied. The services remain containerized,
+passwords remain SOPS-backed, listeners remain private/non-wildcard, and implicit data
+deletion or adoption remains prohibited.
+
 ## Status Snapshot
 
-- Phase 1 and Phase 2 remain the accepted prerequisite baseline.
-- The first helper-managed Phase 3 apply ran and created MariaDB/Redis containers,
-  data/config roots, runtime secrets, and narrowly scoped UFW rules. Convergence stopped
-  at container health, before backup units and final evidence were completed.
-- The shared environment schema now contains the complete Phase 3 structural contract.
-- Phase 3 check/apply dispatch, guarded Ansible desired state, lifecycle scripts, and
-  redacted report writers are implemented and statically validated.
-- Direct Ansible check mode passed with `ok=14 changed=0 failed=0 skipped=28`; it wrote
-  only the requested controller facts file and skipped every host mutation.
-- The public Phase 3 check passes configuration and encrypted-secret validation, reaches
-  Phase 3 Ansible, and remains non-mutating.
-- The test host address is explicitly configured as `192.168.1.151`; Phase 3 also checks
-  that the address is assigned to the target before mutation.
-- MariaDB `11.8.6` and Redis `8.2.4` official `linux/amd64` image digests are pinned.
-- Trivy `0.66.0` scans were recorded and accepted for this test environment. MariaDB
-  reported 308 findings, including 1 critical and 25 high, all fixable. The lower-surface
-  Redis Alpine image reported 78 findings, including 2 critical and 21 high, all fixable.
-  Production promotion requires a separate review and should prefer rebuilt images with
-  fewer fixable findings.
-- The test environment explicitly accepts a local-development restic repository. This
-  validates backup mechanics but does not protect against host loss and is not accepted
-  for non-test environments.
-- The semantic configuration and encrypted secret/TLS validation gates now pass.
-- `provisioning_mode` separates explicit helper-managed host setup from externally
-  managed production endpoints. The setup helper requires `--provision-host-services`.
-- Phase 3 requires live authenticated TLS probes: MariaDB must execute `SELECT 1` and
-  Redis must return `PONG`. Both runtime checks currently fail.
-- Redis initially crash-looped because root-only configuration and secret mounts were
-  unreadable by the pinned non-root image user. The guarded
-  `operations/data-services/repair-test-permissions` helper repaired the test host without
-  deleting data or restarting services; Redis now starts. The Ansible desired state still
-  requires the equivalent durable ownership correction before another apply.
-- Redis authentication remains invalid because generated password input retained a
-  trailing newline while command substitution strips it, and the health script can return
-  success after `WRONGPASS`/`NOAUTH` output.
-- MariaDB starts but remains unhealthy because its internal health client and remote root
-  authentication contract are unsuitable. Use a dedicated least-privilege probe identity;
-  do not weaken the controller-side CA/hostname verification.
-- A controller-side test CA and service certificate covering `192.168.1.151` are stored
-  beneath the ignored environment `.generated` directory. The certificate, server key,
-  and CA certificate are assigned through SOPS; the CA key remains controller-side.
-- External allowed-source and denied-source test vantage points are not yet available.
+- Phase 1, Phase 2, and the Phase 3 development profile pass on `192.168.1.151`.
+- MariaDB `11.8.6` and Redis `8.2.4` image digests remain pinned.
+- Authenticated plaintext MariaDB `SELECT 1` and Redis `PING` probes pass with redacted
+  evidence; trailing newlines in imported passwords are normalized consistently.
+- MariaDB listens on `192.168.1.151:3306`. Redis listens on
+  `192.168.1.151:6379` and loopback, with no wildcard listener for either service.
+- Managed file ownership matches the pinned image runtime identities. Redis health now
+  requires exact `PONG` output rather than accepting authentication error output.
+- Changed bind-mounted inputs force one Compose recreation. An unchanged setup is a
+  no-op, preserving container identity and data.
+- TLS, systemd, backup/restore, and external-source qualification are recorded as
+  `not_applicable` for development. They remain mandatory production design work.
+- `provisioning_mode` separates explicit helper-managed setup from externally managed
+  production endpoints. Setup requires `--provision-host-services`.
 
 ## Implementation Inventory
 
@@ -116,30 +100,19 @@ provide a fast bootstrap path. That convenience does not redefine production own
 
 ## Validation Results
 
-The previous complete explicit unit suite passed 49 tests. Python compilation, shell syntax,
-inventory discovery, all three playbook syntax checks, controller dependency validation,
-wrapper argument rejection, VS Code diagnostics, and `git diff --check` passed.
-
-After the first apply diagnosis, 9 focused baseline/helper tests, shell syntax, Ansible
-syntax, editor diagnostics, and `git diff --check` passed. The permission helper and
-Phase 2 composable-UFW fix remain uncommitted pending the Phase 3 runtime repairs.
-
-Public read-only results:
-
-- Phase 1 check: exit `0`, `ok=16 changed=0 failed=0`.
-- Phase 2 check: exit `0`, `ok=76 changed=0 failed=0 skipped=5`.
-- After Phase 3 UFW rules were installed, Phase 2 initially failed because it rejected
-  ports owned by later phases. The validator now checks only Phase 2-owned UFW invariants;
-  the real check again passes with `ok=76 changed=0 failed=0 skipped=5`.
-- Before live protocol gates were added, Phase 3 Ansible check reached
-  `ok=14 changed=0 failed=0 skipped=28`. The current public check intentionally returns
-  failure until both configured services answer authenticated TLS probes.
-- Direct Phase 3 role check for implementation validation: exit `0`,
-  `ok=14 changed=0 failed=0 skipped=28`.
-- Rendered backup, verification, and restore scripts passed `bash -n`.
-- The generated test certificate passed chain and `192.168.1.151` SAN verification.
-- Image compatibility probes confirmed Redis 8.2.4 provides `redis-server` and
-  `redis-cli`, and MariaDB 11.8.6 provides `mariadb`, `mariadb-admin`, and `mariadb-dump`.
+- Converging apply: `ok=34 changed=2 unreachable=0 failed=0 skipped=14`.
+- Immediate repeated setup: `ok=33 changed=0 unreachable=0 failed=0 skipped=13`.
+- Both runs reported `Phase 3 runtime services: pass` and
+  `Phase 3 host data services: pass`.
+- Before and after the second setup, MariaDB retained container ID prefix `5be94f022f8`
+  and start time `2026-09-20T02:08:37.097934817Z`; Redis retained ID prefix
+  `e7372267e4b` and start time `2026-09-20T02:08:37.095680955Z`.
+- A temporary `phase3-repeatability` MariaDB marker survived the second setup and its
+  acceptance database was removed afterward.
+- Phase 2 remained clean at `ok=76 changed=0 failed=0 skipped=5` after Phase 3 firewall
+  rules were installed.
+- Focused schema, configuration, secret, and runtime tests passed 27 tests; focused
+  runtime/report tests passed 9 tests; Ansible syntax validation passed.
 
 Run static validation from a fresh shell:
 
@@ -190,23 +163,10 @@ certificate, password, and service lifecycle ownership.
 
 ## Remaining Work
 
-- Replace the local-development restic repository with off-host storage before treating
-  backup as disaster-recovery protection.
-- Correct Redis password normalization and health exit behavior.
-- Correct MariaDB health authentication with a dedicated least-privilege probe identity.
-- Make non-root service file ownership durable in Ansible, then run second apply and final
-  public check.
-- Run real off-host backup, snapshot verification, marker-based isolated restore,
-  systemd stop/start durability, overlapping-lock, and simulated upload-failure tests.
-- Verify TLS/authenticated connectivity from an allowed external source and rejection
-  from a denied external source.
-- Record image scan results, evidence redaction scans, and exact first/second apply recaps.
-
-No successful Phase 3 convergence, backup, retention, restore, service durability, or
-external network acceptance test has been completed. The first apply partially deployed
-services and UFW rules but stopped on runtime health.
-Allowed-source and denied-source tests are intentionally deferred and must be completed
-before final environment acceptance.
+Production hardening remains separate: TLS and certificate rotation, dedicated
+least-privilege probes, systemd supervision, off-host backup and restore rehearsal,
+image-policy remediation, and allowed/denied external network qualification. None of
+these deferred controls is implied by development-profile completion.
 
 ## Update Log
 
@@ -218,3 +178,5 @@ before final environment acceptance.
 | 2026-09-19 | Configured the test host address, pinned and scanned current service images, added a bounded local-restic exception, and added renewable test PKI with SOPS import. | Semantic and encrypted-secret validation passed; certificate chain/SAN and image command compatibility passed; public Phase 3 check reached `ok=14 changed=0 failed=0 skipped=28`. |
 | 2026-09-19 | Split optional helper-managed provisioning from external service validation and added authenticated TLS protocol probes with redacted evidence. | Focused provisioning, credential, runtime, report, and helper tests passed; absent services produce explicit MariaDB and Redis runtime failures. |
 | 2026-09-20 | Ran the first helper-managed apply and diagnosed runtime failures. Added a guarded permission-repair helper and corrected Phase 2 UFW validation to coexist with later-phase rules. | Redis starts after permission repair; Phase 2 check passes with `ok=76 changed=0 failed=0 skipped=5`; Phase 3 remains blocked on Redis and MariaDB authentication behavior. |
+| 2026-09-20 | Narrowed Phase 3 to repeatable disposable development services; deferred TLS, strict identity isolation, systemd, backup/restore, and external network qualification. | Documentation gate updated; functional convergence and repeatability remain to be proven. |
+| 2026-09-20 | Completed authenticated plaintext development services, strict health output checks, conditional evidence, and change-triggered Compose lifecycle. | Apply passed; second setup had `changed=0`; container identities and start times were stable; MariaDB marker persisted; both protocol probes and private-listener checks passed. |
