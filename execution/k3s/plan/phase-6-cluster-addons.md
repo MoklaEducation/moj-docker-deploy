@@ -1,6 +1,6 @@
 # Phase 6 Implementation Plan: Cluster Add-ons
 
-Status: ready for implementation after Phase 5 passes.
+Status: test-profile decisions accepted; ready for implementation after Phase 5 passes.
 
 ## Mission
 
@@ -13,11 +13,11 @@ resource-bounded release while preserving the cluster-core ownership boundary.
 
 Read the blueprint, deployment strategy, and Phase 1-5 plans. Require current passing
 Phase 5 evidence, a passing restricted cluster-core identity, an authorized break-glass
-operator able to establish Phase 6 access, resolved resource/storage budgets,
-DNS/challenge decisions, alert destination, retention values, and off-host backup
-destination. Phase 6 creates and verifies its own add-on automation identity after the
-reviewed charts, CRDs, and rollback operations define the required permissions; an
-add-on credential is not a Phase 5 precondition.
+operator able to establish Phase 6 access, resolved resource/storage budgets, the
+certificate profile, alert destination, and retention values. Phase 6 creates and
+verifies its own add-on automation identity after the reviewed charts, CRDs, and
+rollback operations define the required permissions; an add-on credential is not a
+Phase 5 precondition.
 
 For the private test profile, consume the contracts in
 [Phase 3 External Platform Services](phase-3-external-platform-services.md): a reachable
@@ -30,10 +30,45 @@ The initial stack is:
 - cert-manager;
 - Prometheus, Alertmanager, Grafana, and required Kubernetes/node exporters;
 - Grafana Alloy and Loki;
-- a Kubernetes backup mechanism selected during implementation for manifests and required
-  local-path persistent data, using the existing off-host object/repository service;
+- a Kubernetes backup mechanism selected in a later qualification iteration for manifests
+  and required local-path persistent data, using an approved off-host object/repository
+  service;
 - no Tempo, tracing, service mesh, distributed storage, GitOps, or application-specific
   instrumentation.
+
+## Initial Test-Profile Decisions
+
+The first Phase 6 iteration prioritizes a usable private test cluster. It may complete
+without production-grade identity separation, public DNS/ACME, a secret controller, or
+Kubernetes backup qualification, provided evidence labels those controls as deferred
+rather than passing.
+
+- Use a fixed, documented set of test identities. Break-glass access may establish and
+  repair add-on RBAC. Routine self-service privilege escalation remains prohibited, but
+  fine-grained automation hardening and short-lived rotation are follow-up work.
+- Keep `restricted` Pod Security for ordinary add-on workloads. Place node-level metrics
+  or log agents that require host namespaces, host paths, or added capabilities in a
+  dedicated Phase 6-owned namespace with the narrowest chart-supported exception. Record
+  every exception, mount, capability, and reason; broad host filesystem access remains
+  prohibited.
+- Use cert-manager with a private test issuer and a disposable test hostname. Validate
+  issuance, renewal, chain, SAN, and private Traefik TLS without requiring public DNS or
+  ACME. Public DNS, external routing, and production ACME issuers are deferred.
+- Use the existing private disposable webhook receiver for end-to-end alert testing.
+- Decrypt SOPS inputs only on the trusted controller and apply narrowly scoped Kubernetes
+  Secrets through the Phase 6 workflow. A cluster secret controller is deferred unless a
+  selected chart makes it necessary. Plaintext must not persist in Git, evidence, logs,
+  or reusable rendered output.
+- Treat metrics/alerting and logs/dashboards as capabilities composed of separately
+  pinned Helm releases and repository-owned resources; do not require one chart or one
+  release per capability.
+- Defer Kubernetes backup tooling, off-host upload, and restore acceptance. The existing
+  same-host MinIO/restic contract may be used for exploratory mechanics only and must
+  remain `not_qualified` for recovery. Phase 7 backup gates and Phase 8 recovery
+  qualification cannot pass until this work is completed.
+- Resource limits, private access, deterministic rendering, controlled alert delivery,
+  log redaction, restart recovery, and stable second apply remain required in this test
+  iteration.
 
 ## Goals
 
@@ -42,7 +77,8 @@ The initial stack is:
 3. Keep operational endpoints private and credentials encrypted.
 4. Bound CPU, memory, storage, log volume, and retention.
 5. Produce platform health signals and one tested external alert route.
-6. Back up required Kubernetes state and integrate backup freshness with monitoring.
+6. In the later backup qualification iteration, back up required Kubernetes state and
+  integrate backup freshness with monitoring.
 7. Prove each add-on can be re-applied and rolled back independently.
 
 ## Required Configuration
@@ -155,9 +191,11 @@ them in dependency order and runs integrated checks.
 - Apply 15-30 second scrape intervals initially and bounded retention/storage.
 - Monitor node readiness, CPU/memory pressure, filesystem capacity, certificate expiry,
   pod crash loops, persistent volume usage, ingress availability, monitoring target
-  absence, host MariaDB/Redis health, and backup freshness.
-- Expose host data-service and backup status through bounded exporters/textfile metrics
-  without database credentials or application identifiers.
+  absence, and host MariaDB/Redis health. Add backup freshness when backup integration is
+  enabled.
+- Expose host data-service status through bounded exporters/textfile metrics without
+  database credentials or application identifiers. Add backup status with the later
+  backup integration.
 - Keep UIs private through the accepted administrative access path; do not make them
   public merely to obtain certificates.
 - Configure one external Alertmanager route and send a controlled test alert through the
@@ -179,6 +217,9 @@ them in dependency order and runs integrated checks.
 - Generate harmless events and verify they are queryable without sensitive values.
 
 ## Add-on Release 4: Kubernetes Backups
+
+This release is deferred from the initial test-profile gate. The following requirements
+remain the acceptance contract for its later qualification iteration.
 
 - Select and record the backup tool only after confirming support for k3s, local-path
   volumes, the chosen off-host destination, encryption, and restore into a clean cluster.
@@ -229,7 +270,7 @@ them in dependency order and runs integrated checks.
 3. Deliver and validate certificates.
 4. Deliver and validate metrics, dashboards, and the external alert route.
 5. Deliver and validate Alloy/Loki logs and redaction rules.
-6. Select, deliver, and validate Kubernetes backup integration.
+6. Record Kubernetes backup integration as deferred for the initial test iteration.
 7. Run integrated resource/headroom, privacy, network-policy, restart, second-apply, and
    rollback tests.
 
@@ -244,8 +285,9 @@ Prove:
    controlled alert reaches the operator.
 4. Harmless platform logs reach Loki and deliberate secret-shaped test values are dropped
    or redacted.
-5. Backup completes off-host, freshness is monitored, and isolated namespace restore
-   succeeds.
+5. Backup status is explicitly `deferred` and `not_qualified` for the initial test
+  iteration; a later qualification run requires off-host completion, freshness
+  monitoring, and a successful isolated namespace restore.
 6. UIs are inaccessible publicly and available only through the approved admin path.
 7. Network policies allow required flows and deny an unapproved probe.
 8. Resource/PVC usage remains within budgets with documented application headroom.
@@ -257,15 +299,19 @@ dry-run/diff, image scanning, and live smoke tests.
 
 ## Evidence and Completion Gate
 
-Write one aggregate Phase 6 report plus one report per add-on under
+Write one aggregate Phase 6 report plus one report per implemented add-on under
 `execution/k3s/.evidence/<environment>/`. Record prior evidence IDs, release/chart/image
 versions, rendered hashes, RBAC/policy findings, health, resource/storage use, certificate,
-alert, log-redaction, backup/restore, reboot, idempotence, and rollback outcomes. Do not
-record credentials, notification secrets, private keys, or sensitive log content.
+alert, log-redaction, reboot, idempotence, and rollback outcomes. Record deferred or
+implemented backup/restore status explicitly. Do not record credentials, notification
+secrets, private keys, or sensitive log content.
 
-Phase 6 completes only when all four releases pass independently and together, capacity
-headroom remains, backup and alert failures are visible, private access is enforced, and
-no application workload was required to prove the platform.
+The initial test-profile Phase 6 gate completes when certificates, metrics/alerting, and
+logs/dashboards pass independently and together, capacity headroom remains, private
+access is enforced, and no application workload was required to prove the platform.
+Evidence must report Kubernetes backup and off-host resilience as `deferred` and
+`not_qualified`. Full Phase 6 production-readiness completes only when backup, restore,
+freshness/failure alerting, and off-host destination requirements also pass.
 
 ## Non-Goals
 
