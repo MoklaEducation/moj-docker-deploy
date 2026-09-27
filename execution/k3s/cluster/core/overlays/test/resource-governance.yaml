@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: namespace-budget
+  namespace: judge-test
+spec:
+  hard:
+    requests.cpu: "2"
+    requests.memory: 4G
+    limits.cpu: "4"
+    limits.memory: 8G
+    pods: "40"
+    persistentvolumeclaims: "5"
+    local-path.storageclass.storage.k8s.io/requests.storage: 20G
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: container-defaults
+  namespace: judge-test
+spec:
+  limits:
+    - type: Container
+      defaultRequest: {cpu: 100m, memory: 128M}
+      default: {cpu: 500m, memory: 512M}

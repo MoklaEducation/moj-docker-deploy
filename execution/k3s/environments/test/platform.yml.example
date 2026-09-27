@@ -115,3 +115,43 @@ k3s:
   local_storage_path: /srv/mokla/k3s/storage
   kubeconfig_output: execution/k3s/environments/test/.generated/bootstrap-admin.kubeconfig
   secrets_encryption: true
+cluster_core:
+  managed_by: mokla-cluster-core
+  application_umbrella: judge-platform
+  namespaces:
+    platform: platform-system
+    observability: observability
+    backup: backup-system
+    application: judge-test
+    reserved: [judge-prod, judge-staging]
+  pod_security: {enforce: restricted, audit: restricted, warn: restricted, version: latest}
+  identities:
+    operator:
+      name: mokla-platform-operator
+      group: mokla:platform-operators
+      kubeconfig_output: execution/k3s/environments/test/.generated/platform-operator.kubeconfig
+      certificate_validity_days: 30
+    automation:
+      name: mokla-cluster-core
+      group: mokla:cluster-core
+      kubeconfig_output: execution/k3s/environments/test/.generated/cluster-core.kubeconfig
+      certificate_validity_days: 30
+  quotas:
+    platform: {requests_cpu: 500m, requests_memory: 512M, limits_cpu: "1", limits_memory: 1G, pods: 20, persistentvolumeclaims: 2, requests_storage: 5G}
+    observability: {requests_cpu: 1500m, requests_memory: 3G, limits_cpu: "3", limits_memory: 6G, pods: 30, persistentvolumeclaims: 8, requests_storage: 50G}
+    backup: {requests_cpu: 500m, requests_memory: 1G, limits_cpu: "1", limits_memory: 2G, pods: 15, persistentvolumeclaims: 4, requests_storage: 20G}
+    application: {requests_cpu: "2", requests_memory: 4G, limits_cpu: "4", limits_memory: 8G, pods: 40, persistentvolumeclaims: 5, requests_storage: 20G}
+  limits: {default_request_cpu: 100m, default_request_memory: 128M, default_cpu: 500m, default_memory: 512M}
+  network:
+    dns_namespace: kube-system
+    dns_pod_label: k8s-app=kube-dns
+    allow_application_data_services: true
+  storage:
+    class_name: local-path
+    remain_default: true
+    allowed_namespaces: [platform-system, observability, backup-system, judge-test]
+  secret_delivery:
+    provider: sops-age
+    age_recipient: age1rwwjrh53mxx43xps8glry9uk4aga839wlr85ceftvr0905dgqvxsrgke24
+    identity_environment_variable: SOPS_AGE_KEY_FILE
+  smoke_image: docker.io/library/busybox:1.36.1@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662

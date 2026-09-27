@@ -16,6 +16,9 @@ K3S_CONFIG="$SCRIPT_DIR/operations/validate/k3s_config.py"
 K3S_KUBECONFIG="$SCRIPT_DIR/operations/validate/kubeconfig_contract.py"
 K3S_RUNTIME="$SCRIPT_DIR/operations/validate/k3s_runtime.py"
 K3S_REPORT="$SCRIPT_DIR/operations/validate/k3s_installation_report.py"
+CLUSTER_CORE_VALIDATE="$SCRIPT_DIR/cluster/core/scripts/validate.sh"
+CLUSTER_CORE_APPLY="$SCRIPT_DIR/cluster/core/scripts/apply.sh"
+CLUSTER_CORE_REPORT="$SCRIPT_DIR/operations/validate/cluster_core_report.py"
 CONTROLLER_VENV="$SCRIPT_DIR/.controller-venv"
 
 if [[ -x "$CONTROLLER_VENV/bin/python3" ]]; then
@@ -32,6 +35,8 @@ Usage:
   ./execution/k3s/bootstrap.sh apply --environment NAME --through host-data-services
   ./execution/k3s/bootstrap.sh check --environment NAME --through k3s-installation
   ./execution/k3s/bootstrap.sh apply --environment NAME --through k3s-installation
+  ./execution/k3s/bootstrap.sh check --environment NAME --through cluster-core
+  ./execution/k3s/bootstrap.sh apply --environment NAME --through cluster-core
 
 The check action is non-mutating. The apply action requires an explicit --through
 boundary and never reboots the host automatically.
@@ -61,7 +66,7 @@ done
 
 [[ "$action" == "check" || "$action" == "apply" ]] || die_usage "an action is required"
 [[ -n "$environment" ]] || die_usage "--environment is required"
-[[ -z "$through" || "$through" == "host-baseline" || "$through" == "host-data-services" || "$through" == "k3s-installation" ]] || die_usage "unsupported phase: $through"
+[[ -z "$through" || "$through" == "host-baseline" || "$through" == "host-data-services" || "$through" == "k3s-installation" || "$through" == "cluster-core" ]] || die_usage "unsupported phase: $through"
 [[ "$action" != "apply" || -n "$through" ]] || die_usage "apply requires an explicit --through boundary"
 [[ "$EUID" -ne 0 ]] || { echo "error: do not run bootstrap as root" >&2; exit 1; }
 
@@ -264,4 +269,34 @@ fi
 if (( phase4_runtime_status != 0 )); then
   exit "$phase4_runtime_status"
 fi
-exit "$phase4_report_status"
+if (( phase4_report_status != 0 )) || [[ "$through" == "k3s-installation" ]]; then
+  exit "$phase4_report_status"
+fi
+
+phase5_report_path="$SCRIPT_DIR/.evidence/$environment/phase-5-cluster-core.json"
+phase5_render_facts_path="$SCRIPT_DIR/.evidence/$environment/.phase-5-render.json"
+phase5_runtime_path="$SCRIPT_DIR/.evidence/$environment/.phase-5-runtime.json"
+trap 'rm -f "$phase2_output" "$phase2_facts_path" "$phase3_output" "$phase3_facts_path" "$phase3_runtime_path" "$phase3_secrets" "$phase4_output" "$phase4_facts_path" "$phase4_runtime_path" "$phase5_render_facts_path" "$phase5_runtime_path"' EXIT
+rm -f "$phase5_render_facts_path" "$phase5_runtime_path"
+
+"$CLUSTER_CORE_VALIDATE" "$environment" "$phase5_render_facts_path"
+
+set +e
+"$CLUSTER_CORE_APPLY" "$action" "$environment" "$phase5_runtime_path"
+phase5_runtime_status=$?
+set -e
+
+set +e
+python3 "$CLUSTER_CORE_REPORT" \
+  --environment "$environment" \
+  --mode "$action" \
+  --phase-4-report "$phase4_report_path" \
+  --runtime-report "$phase5_runtime_path" \
+  --report "$phase5_report_path"
+phase5_report_status=$?
+set -e
+
+if (( phase5_runtime_status != 0 )); then
+  exit "$phase5_runtime_status"
+fi
+exit "$phase5_report_status"

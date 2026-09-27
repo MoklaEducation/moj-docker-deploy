@@ -41,8 +41,9 @@ Before apply:
 
 The Phase 1-owned schema must include:
 
-- namespace names for `platform-system`, `observability`, `backup-system`, `dmoj-test`,
-  and `dmoj-prod` or accepted equivalents;
+- namespace names for `platform-system`, `observability`, `backup-system`, `judge-test`,
+  and `judge-prod`; reserve `judge-staging` as the future staging convention without
+  creating it until a staging environment is approved;
 - environment-specific namespace quotas and default CPU/memory requests and limits;
 - pod-security level and documented exemptions;
 - administrative user/group identities from the authentication mechanism available to
@@ -100,6 +101,11 @@ runs smoke tests.
 ### Namespaces and labels
 
 - Create only agreed platform and placeholder application namespaces.
+- Treat `judge-platform` as the application-platform umbrella. Use `judge-test` and
+  `judge-prod` as environment namespaces and label their resources with
+  `app.kubernetes.io/part-of: judge-platform`.
+- Create only the application namespace selected by the environment overlay. The test
+  overlay creates `judge-test`, not `judge-prod` or the reserved `judge-staging`.
 - Label namespaces with environment, ownership, managed-by, and pod-security admission
   labels.
 - Use `restricted` pod-security defaults where supported. Any exemption must identify the

@@ -97,6 +97,17 @@ class PlatformSchemaTests(unittest.TestCase):
                 del platform["k3s"][field]
                 self.assertTrue(list(VALIDATOR.iter_errors(platform)), field)
 
+    def test_phase_5_cluster_core_fields_are_required(self):
+        for field in (
+            "managed_by", "application_umbrella", "namespaces", "pod_security",
+            "identities", "quotas", "limits", "network", "storage",
+            "secret_delivery", "smoke_image",
+        ):
+            with self.subTest(field=field):
+                platform = copy.deepcopy(PLATFORM)
+                del platform["cluster_core"][field]
+                self.assertTrue(list(VALIDATOR.iter_errors(platform)), field)
+
     def test_unsafe_phase_2_values_are_rejected(self):
         invalid_values = (
             (("host", "storage_root"), "relative/path"),
@@ -138,6 +149,21 @@ class PlatformSchemaTests(unittest.TestCase):
             (("k3s", "data_dir"), "relative/path"),
             (("k3s", "kubeconfig_output"), "../kubeconfig"),
             (("k3s", "secrets_encryption"), False),
+        )
+        for path, value in invalid_values:
+            with self.subTest(path=path):
+                self.assert_invalid(path, value)
+
+    def test_structurally_invalid_phase_5_values_are_rejected(self):
+        invalid_values = (
+            (("cluster_core", "managed_by"), "someone-else"),
+            (("cluster_core", "namespaces", "application"), "dmoj-test"),
+            (("cluster_core", "pod_security", "enforce"), "privileged"),
+            (("cluster_core", "identities", "operator", "certificate_validity_days"), 365),
+            (("cluster_core", "quotas", "application", "requests_cpu"), "unbounded"),
+            (("cluster_core", "storage", "class_name"), "unknown"),
+            (("cluster_core", "secret_delivery", "age_recipient"), "not-an-age-recipient"),
+            (("cluster_core", "smoke_image"), "busybox:latest"),
         )
         for path, value in invalid_values:
             with self.subTest(path=path):

@@ -3,7 +3,7 @@
   "$id": "https://mokla.example/schemas/platform.schema.json",
   "type": "object",
   "additionalProperties": false,
-  "required": ["environment_name", "target_connection", "host_fqdn", "host_address", "network", "host", "docker", "data_services", "backup", "k3s"],
+  "required": ["environment_name", "target_connection", "host_fqdn", "host_address", "network", "host", "docker", "data_services", "backup", "k3s", "cluster_core"],
   "properties": {
     "environment_name": {"type": "string", "minLength": 1},
     "target_connection": {
@@ -190,6 +190,88 @@
         "kubeconfig_output": {"type": "string", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+"},
         "secrets_encryption": {"const": true}
       }
+    },
+    "cluster_core": {
+      "type": "object", "additionalProperties": false,
+      "required": ["managed_by", "application_umbrella", "namespaces", "pod_security", "identities", "quotas", "limits", "network", "storage", "secret_delivery", "smoke_image"],
+      "properties": {
+        "managed_by": {"const": "mokla-cluster-core"},
+        "application_umbrella": {"const": "judge-platform"},
+        "namespaces": {
+          "type": "object", "additionalProperties": false,
+          "required": ["platform", "observability", "backup", "application", "reserved"],
+          "properties": {
+            "platform": {"const": "platform-system"},
+            "observability": {"const": "observability"},
+            "backup": {"const": "backup-system"},
+            "application": {"type": "string", "pattern": "^judge-(?:test|prod|staging)$"},
+            "reserved": {
+              "type": "array", "uniqueItems": true,
+              "items": {"type": "string", "pattern": "^judge-(?:test|prod|staging)$"}
+            }
+          }
+        },
+        "pod_security": {
+          "type": "object", "additionalProperties": false,
+          "required": ["enforce", "audit", "warn", "version"],
+          "properties": {
+            "enforce": {"const": "restricted"},
+            "audit": {"const": "restricted"},
+            "warn": {"const": "restricted"},
+            "version": {"type": "string", "pattern": "^(?:latest|v[0-9]+\\.[0-9]+)$"}
+          }
+        },
+        "identities": {
+          "type": "object", "additionalProperties": false,
+          "required": ["operator", "automation"],
+          "properties": {
+            "operator": {"$ref": "#/$defs/cluster_identity"},
+            "automation": {"$ref": "#/$defs/cluster_identity"}
+          }
+        },
+        "quotas": {
+          "type": "object", "additionalProperties": false,
+          "required": ["platform", "observability", "backup", "application"],
+          "properties": {
+            "platform": {"$ref": "#/$defs/namespace_quota"},
+            "observability": {"$ref": "#/$defs/namespace_quota"},
+            "backup": {"$ref": "#/$defs/namespace_quota"},
+            "application": {"$ref": "#/$defs/namespace_quota"}
+          }
+        },
+        "limits": {"$ref": "#/$defs/container_limits"},
+        "network": {
+          "type": "object", "additionalProperties": false,
+          "required": ["dns_namespace", "dns_pod_label", "allow_application_data_services"],
+          "properties": {
+            "dns_namespace": {"const": "kube-system"},
+            "dns_pod_label": {"const": "k8s-app=kube-dns"},
+            "allow_application_data_services": {"type": "boolean"}
+          }
+        },
+        "storage": {
+          "type": "object", "additionalProperties": false,
+          "required": ["class_name", "remain_default", "allowed_namespaces"],
+          "properties": {
+            "class_name": {"const": "local-path"},
+            "remain_default": {"type": "boolean"},
+            "allowed_namespaces": {
+              "type": "array", "minItems": 1, "uniqueItems": true,
+              "items": {"type": "string", "minLength": 1}
+            }
+          }
+        },
+        "secret_delivery": {
+          "type": "object", "additionalProperties": false,
+          "required": ["provider", "age_recipient", "identity_environment_variable"],
+          "properties": {
+            "provider": {"const": "sops-age"},
+            "age_recipient": {"type": "string", "pattern": "^age1[0-9a-z]+$"},
+            "identity_environment_variable": {"const": "SOPS_AGE_KEY_FILE"}
+          }
+        },
+        "smoke_image": {"type": "string", "pattern": "^[^@\\s]+@sha256:[0-9a-f]{64}$"}
+      }
     }
   },
   "$defs": {
@@ -205,5 +287,40 @@
       }
     },
     "memory_size": {"type": "string", "pattern": "^[1-9][0-9]*[kKmMgG]$"}
+    ,
+    "cluster_identity": {
+      "type": "object", "additionalProperties": false,
+      "required": ["name", "group", "kubeconfig_output", "certificate_validity_days"],
+      "properties": {
+        "name": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
+        "group": {"type": "string", "pattern": "^[a-z][a-z0-9:-]*$"},
+        "kubeconfig_output": {"type": "string", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+"},
+        "certificate_validity_days": {"type": "integer", "minimum": 1, "maximum": 90}
+      }
+    },
+    "namespace_quota": {
+      "type": "object", "additionalProperties": false,
+      "required": ["requests_cpu", "requests_memory", "limits_cpu", "limits_memory", "pods", "persistentvolumeclaims", "requests_storage"],
+      "properties": {
+        "requests_cpu": {"$ref": "#/$defs/cpu_quantity"},
+        "requests_memory": {"$ref": "#/$defs/memory_size"},
+        "limits_cpu": {"$ref": "#/$defs/cpu_quantity"},
+        "limits_memory": {"$ref": "#/$defs/memory_size"},
+        "pods": {"type": "integer", "minimum": 1},
+        "persistentvolumeclaims": {"type": "integer", "minimum": 0},
+        "requests_storage": {"$ref": "#/$defs/memory_size"}
+      }
+    },
+    "container_limits": {
+      "type": "object", "additionalProperties": false,
+      "required": ["default_request_cpu", "default_request_memory", "default_cpu", "default_memory"],
+      "properties": {
+        "default_request_cpu": {"$ref": "#/$defs/cpu_quantity"},
+        "default_request_memory": {"$ref": "#/$defs/memory_size"},
+        "default_cpu": {"$ref": "#/$defs/cpu_quantity"},
+        "default_memory": {"$ref": "#/$defs/memory_size"}
+      }
+    },
+    "cpu_quantity": {"type": "string", "pattern": "^(?:[1-9][0-9]*m|[1-9][0-9]*(?:\\.[0-9]+)?)$"}
   }
 }
