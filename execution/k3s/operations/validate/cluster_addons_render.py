@@ -48,6 +48,8 @@ def enabled_release_names(platform):
     names = ["certificates"]
     if platform["cluster_addons"]["capabilities"]["metrics"]:
         names.extend(("metrics", "node_metrics"))
+    if platform["cluster_addons"]["capabilities"]["logs"]:
+        names.extend(("logs", "log_agent"))
     return names
 
 

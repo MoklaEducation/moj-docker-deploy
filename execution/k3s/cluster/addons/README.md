@@ -20,10 +20,10 @@ Run the public cumulative workflow with the environment's SOPS identity configur
 ```
 
 `check` downloads the pinned charts to temporary paths, verifies their checksums, renders them
-twice, runs offline policy checks, checks live drift, and performs read-only certificate
-HTTPS, Prometheus, node metrics, Grafana, and Alertmanager health checks. `apply`
-bootstraps the fixed test identity when necessary, reconciles only detected chart or
-owned-resource drift, and sends one disposable end-to-end alert probe.
+twice, runs offline policy checks, checks live drift, and performs read-only certificate,
+metrics, alerting, Loki, and Alloy health checks. `apply` bootstraps the fixed test
+identity when necessary, reconciles only detected chart or owned-resource drift, and
+sends disposable alert, log, event, and redaction probes.
 
 The internal scripts under `scripts/` are narrow implementation entry points used by
 bootstrap. They require current passing Phase 5 evidence and are not a replacement for
@@ -47,11 +47,16 @@ exporter requires host networking, host PID, and read-only `/proc`, `/sys`, and 
 mounts. Offline policy rejects those privileges everywhere else and rejects additional
 host paths even in that namespace.
 
+`logs` installs Loki `7.3.0` and Alloy `1.13.0` in restricted `observability`. Loki uses
+single-binary filesystem storage with 48-hour retention and an 8 GiB PVC. Alloy collects
+allowlisted pod logs and Kubernetes events through the Kubernetes API, with no host
+mounts or host namespace access. Sensitive credential, cookie, query, body, and personal
+identifier patterns are redacted before ingestion. Grafana receives a declarative Loki
+data source and platform logs dashboard.
+
 The test add-on identity temporarily receives `cluster-admin` through the explicitly
 labeled `mokla:cluster-addons:test-admin` binding because the Helm release owns CRDs,
 webhook configuration, and cluster RBAC. Replace this with split bootstrap and routine
 permissions before production qualification.
 
-Logs and backups remain disabled. Add Alloy/Loki as separate pinned releases while
-preserving the existing acquire, render, policy, drift, apply, smoke, and evidence
-boundaries. Backup remains a deferred, non-qualified capability.
+Backup remains a deferred, non-qualified capability.

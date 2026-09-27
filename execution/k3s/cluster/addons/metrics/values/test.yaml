@@ -54,6 +54,15 @@ alertmanager:
 
 grafana:
   enabled: true
+  additionalDataSources:
+    - name: Loki
+      uid: Loki
+      type: loki
+      access: proxy
+      url: http://loki.observability.svc.cluster.local:3100
+      isDefault: false
+      jsonData:
+        maxLines: 1000
   securityContext:
     runAsNonRoot: true
     runAsUser: 472

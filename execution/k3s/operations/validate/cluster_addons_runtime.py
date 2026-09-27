@@ -117,6 +117,11 @@ def wait_for_metrics(kubeconfig):
     kubectl(kubeconfig, "-n", "observability-agents", "rollout", "status", "daemonset/node-exporter", "--timeout=600s")
 
 
+def wait_for_logs(kubeconfig):
+    kubectl(kubeconfig, "-n", "observability", "rollout", "status", "statefulset/loki", "--timeout=600s")
+    kubectl(kubeconfig, "-n", "observability", "rollout", "status", "deployment/alloy", "--timeout=600s")
+
+
 def service_proxy(kubeconfig, service, port, path, *, payload=None, expect_json=True):
     raw = f"/api/v1/namespaces/observability/services/http:{service}:{port}/proxy{path}"
     if payload is None:
@@ -196,6 +201,64 @@ def metrics_smoke(kubeconfig, platform, mode):
             raise RuntimeError("Alertmanager webhook probe was not delivered to the Phase 3 receiver")
     finally:
         receiver_request(endpoint, "/events", method="DELETE")
+    return smoke
+
+
+def loki_query(kubeconfig, expression, start):
+    parameters = urllib.parse.urlencode({"query": expression, "start": str(start), "limit": "1000"})
+    response = service_proxy(kubeconfig, "loki", 3100, f"/loki/api/v1/query_range?{parameters}")
+    if response.get("status") != "success":
+        raise RuntimeError("Loki query did not succeed")
+    return [line for stream in response.get("data", {}).get("result", []) for _, line in stream.get("values", [])]
+
+
+def logs_smoke(kubeconfig, platform, mode):
+    service_proxy(kubeconfig, "loki", 3100, "/ready", expect_json=False)
+    labels = service_proxy(kubeconfig, "loki", 3100, "/loki/api/v1/labels")
+    if labels.get("status") != "success":
+        raise RuntimeError("Loki labels endpoint did not report success")
+    smoke = {"loki_ready": True, "alloy_ready": True, "ingestion": "not_run_in_check_mode", "redaction": "not_run_in_check_mode", "events": "not_run_in_check_mode"}
+    if mode != "apply":
+        return smoke
+
+    probe_id = uuid.uuid4().hex
+    pod_name = f"phase6-log-probe-{probe_id[:12]}"
+    harmless = f"MOKLA_PHASE6_LOG_PROBE_{probe_id}"
+    secret = f"MOKLA_SECRET_{probe_id}"
+    pod = {
+        "apiVersion": "v1", "kind": "Pod",
+        "metadata": {"name": pod_name, "namespace": "judge-test", "labels": {"app.kubernetes.io/name": "phase6-log-probe"}},
+        "spec": {
+            "restartPolicy": "Never",
+            "automountServiceAccountToken": False,
+            "securityContext": {"runAsNonRoot": True, "runAsUser": 65534, "runAsGroup": 65534, "seccompProfile": {"type": "RuntimeDefault"}},
+            "containers": [{
+                "name": "probe", "image": platform["cluster_core"]["smoke_image"],
+                "command": ["sh", "-c", f"printf '%s\\n' '{harmless}' 'probe_id={probe_id} token={secret}'"],
+                "resources": {"requests": {"cpu": "5m", "memory": "8Mi"}, "limits": {"cpu": "20m", "memory": "16Mi"}},
+                "securityContext": {"allowPrivilegeEscalation": False, "capabilities": {"drop": ["ALL"]}, "readOnlyRootFilesystem": True},
+            }],
+        },
+    }
+    start = int((time.time() - 30) * 1_000_000_000)
+    kubectl(kubeconfig, "create", "-f", "-", stdin=dump_documents([pod]))
+    try:
+        kubectl(kubeconfig, "-n", "judge-test", "wait", "--for=jsonpath={.status.phase}=Succeeded", f"pod/{pod_name}", "--timeout=120s")
+        for _ in range(45):
+            pod_lines = loki_query(kubeconfig, f'{{namespace="judge-test"}} |= "{probe_id}"', start)
+            event_lines = loki_query(kubeconfig, f'{{job="loki.source.kubernetes_events"}} |= "{pod_name}"', start)
+            if any(harmless in line for line in pod_lines) and event_lines:
+                if any(secret in line for line in pod_lines):
+                    raise RuntimeError("secret-shaped log probe reached Loki without redaction")
+                if not any("[REDACTED_SECRET]" in line for line in pod_lines):
+                    raise RuntimeError("redacted log probe was not found in Loki")
+                smoke.update({"ingestion": "passed", "redaction": "passed", "events": "passed", "probe_id": probe_id})
+                break
+            time.sleep(2)
+        else:
+            raise RuntimeError("Loki did not return the Phase 6 pod-log and event probes")
+    finally:
+        kubectl(kubeconfig, "-n", "judge-test", "delete", "pod", pod_name, "--ignore-not-found", "--wait=false", check=False)
     return smoke
 
 
@@ -329,8 +392,11 @@ def main():
             wait_for_certificates(addon_kubeconfig, release_inventory["certificates"]["namespace"])
             if platform["cluster_addons"]["capabilities"]["metrics"]:
                 wait_for_metrics(addon_kubeconfig)
+            if platform["cluster_addons"]["capabilities"]["logs"]:
+                wait_for_logs(addon_kubeconfig)
             smoke = certificate_smoke(addon_kubeconfig, platform)
             monitoring_smoke = metrics_smoke(addon_kubeconfig, platform, args.mode) if platform["cluster_addons"]["capabilities"]["metrics"] else {}
+            logging_smoke = logs_smoke(addon_kubeconfig, platform, args.mode) if platform["cluster_addons"]["capabilities"]["logs"] else {}
             runtime.update({
                 "credential_mode": "fixed-test-identity",
                 "restricted_credentials_ready": True,
@@ -338,12 +404,16 @@ def main():
                 "releases": release_results,
                 "certificate_smoke": smoke,
                 "metrics_smoke": monitoring_smoke,
-                "deferred": {"metrics": False, "logs": True, "backups": True, "off_host_recovery": True},
+                "logs_smoke": logging_smoke,
+                "deferred": {"metrics": False, "logs": False, "backups": True, "off_host_recovery": True},
                 "checks": [
                     {"id": "cluster_addons.access", "status": "pass", "evidence": "fixed test identity authenticated"},
                     {"id": "cluster_addons.certificates", "status": "pass", "evidence": "private issuer, chain, SAN, and HTTPS passed"},
                     {"id": "cluster_addons.metrics", "status": "pass", "evidence": "Prometheus, node metrics, Grafana, and Alertmanager passed"},
                     {"id": "cluster_addons.alert_delivery", "status": "pass" if monitoring_smoke.get("alert_delivery") == "passed" else "not_run", "evidence": monitoring_smoke.get("alert_delivery")},
+                    {"id": "cluster_addons.logs", "status": "pass", "evidence": "Loki and Alloy are ready"},
+                    {"id": "cluster_addons.log_ingestion", "status": "pass" if logging_smoke.get("ingestion") == "passed" else "not_run", "evidence": logging_smoke.get("ingestion")},
+                    {"id": "cluster_addons.log_redaction", "status": "pass" if logging_smoke.get("redaction") == "passed" else "not_run", "evidence": logging_smoke.get("redaction")},
                 ],
                 "overall_status": "pass",
             })

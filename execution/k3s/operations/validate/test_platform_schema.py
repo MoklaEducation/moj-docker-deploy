@@ -118,7 +118,7 @@ class PlatformSchemaTests(unittest.TestCase):
     def test_phase_6_cluster_addon_fields_are_required(self):
         for field in (
             "managed_by", "profile", "identity", "namespaces", "private_access",
-            "capabilities", "certificates", "metrics",
+            "capabilities", "certificates", "metrics", "logs",
         ):
             with self.subTest(field=field):
                 platform = copy.deepcopy(PLATFORM)
@@ -198,6 +198,10 @@ class PlatformSchemaTests(unittest.TestCase):
             (("cluster_addons", "metrics", "retention"), "forever"),
             (("cluster_addons", "metrics", "prometheus_storage"), "unbounded"),
             (("cluster_addons", "metrics", "alert_receiver_endpoint"), "https://public.example/alerts"),
+            (("cluster_addons", "logs", "retention"), "forever"),
+            (("cluster_addons", "logs", "ingestion_rate_mb"), 0),
+            (("cluster_addons", "logs", "namespaces"), ["kube-system", "kube-system"]),
+            (("cluster_addons", "logs", "redaction_policy"), "none"),
         )
         for path, value in invalid_values:
             with self.subTest(path=path):

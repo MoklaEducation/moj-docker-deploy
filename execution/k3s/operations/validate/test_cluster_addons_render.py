@@ -59,6 +59,20 @@ class ClusterAddonsRenderTests(unittest.TestCase):
     def test_owned_resources_match_platform_contract(self):
         self.assertEqual([], MODULE.validate(PLATFORM, RELEASES, DOCUMENTS, ROOT.parents[1]))
 
+    def test_enabled_release_set_includes_independent_logging_releases(self):
+        self.assertEqual(
+            ["certificates", "metrics", "node_metrics", "logs", "log_agent"],
+            MODULE.enabled_release_names(PLATFORM),
+        )
+
+    def test_disabling_logs_removes_both_logging_releases(self):
+        platform = copy.deepcopy(PLATFORM)
+        platform["cluster_addons"]["capabilities"]["logs"] = False
+        self.assertEqual(
+            ["certificates", "metrics", "node_metrics"],
+            MODULE.enabled_release_names(platform),
+        )
+
     def test_mutable_workload_image_is_rejected(self):
         documents = copy.deepcopy(DOCUMENTS)
         deployment = next(document for document in documents if document.get("kind") == "Deployment")

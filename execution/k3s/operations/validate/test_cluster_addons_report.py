@@ -42,6 +42,21 @@ class ClusterAddonsReportTests(unittest.TestCase):
         self.assertEqual("passed", checked["metrics_smoke"]["alert_delivery"])
         self.assertEqual("probe-1", checked["metrics_smoke"]["probe_id"])
 
+    def test_check_preserves_apply_time_log_proofs(self):
+        applied = MODULE.build_report(
+            "test", "apply", {}, {},
+            {"overall_status": "pass", "logs_smoke": {"ingestion": "passed", "redaction": "passed", "events": "passed", "probe_id": "probe-2"}},
+        )
+        checked = MODULE.build_report(
+            "test", "check", {}, {},
+            {"overall_status": "pass", "logs_smoke": {"ingestion": "not_run_in_check_mode", "redaction": "not_run_in_check_mode", "events": "not_run_in_check_mode"}},
+            applied,
+        )
+        self.assertEqual("passed", checked["logs_smoke"]["ingestion"])
+        self.assertEqual("passed", checked["logs_smoke"]["redaction"])
+        self.assertEqual("passed", checked["logs_smoke"]["events"])
+        self.assertEqual("probe-2", checked["logs_smoke"]["probe_id"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,50 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-loki-ingestion-and-query
+  namespace: observability
+  labels: {app.kubernetes.io/managed-by: mokla-cluster-addons}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: loki}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: {}
+      ports:
+        - {protocol: TCP, port: 3100}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-platform-logs
+  namespace: observability
+  labels:
+    app.kubernetes.io/managed-by: mokla-cluster-addons
+    grafana_dashboard: "1"
+data:
+  platform-logs.json: |-
+    {
+      "annotations": {"list": []},
+      "editable": false,
+      "panels": [
+        {
+          "datasource": {"type": "loki", "uid": "Loki"},
+          "fieldConfig": {"defaults": {}, "overrides": []},
+          "gridPos": {"h": 18, "w": 24, "x": 0, "y": 0},
+          "id": 1,
+          "options": {"dedupStrategy": "none", "enableLogDetails": true, "showCommonLabels": false, "showLabels": false, "showTime": true, "sortOrder": "Descending", "wrapLogMessage": true},
+          "targets": [{"datasource": {"type": "loki", "uid": "Loki"}, "expr": "{namespace=~\"kube-system|platform-system|observability|observability-agents|cert-manager|judge-test\"}", "refId": "A"}],
+          "title": "Platform logs and events",
+          "type": "logs"
+        }
+      ],
+      "schemaVersion": 41,
+      "tags": ["mokla", "platform"],
+      "templating": {"list": []},
+      "time": {"from": "now-1h", "to": "now"},
+      "timezone": "browser",
+      "title": "Mokla Platform Logs",
+      "uid": "mokla-platform-logs",
+      "version": 1
+    }

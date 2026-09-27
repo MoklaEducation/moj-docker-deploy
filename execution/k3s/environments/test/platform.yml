@@ -216,7 +216,7 @@ cluster_addons:
   capabilities:
     certificates: true
     metrics: true
-    logs: false
+    logs: true
     backups: false
   certificates:
     issuer_name: mokla-test-ca
@@ -232,3 +232,11 @@ cluster_addons:
     alertmanager_storage: 1G
     grafana_storage: 2G
     alert_receiver_endpoint: http://192.168.1.151:9080/alerts
+  logs:
+    retention: 48h
+    storage: 8G
+    ingestion_rate_mb: 2
+    ingestion_burst_mb: 4
+    max_query_parallelism: 4
+    namespaces: [kube-system, platform-system, observability, observability-agents, cert-manager, judge-test]
+    redaction_policy: phase6-sensitive-v1

@@ -1,6 +1,6 @@
 # Phase 6 Cluster Add-ons Progress
 
-Status: certificate and metrics/alerting capabilities complete; logs not started
+Status: initial test-profile gate complete; backup/recovery qualification deferred
 
 Last updated: 2026-09-27
 
@@ -126,26 +126,44 @@ and integrated test-profile validation.
 - Release reconciliation is descriptor-driven. Each Helm release is upgraded only when
   its supplied values drift, preserving independent release revisions on no-op apply.
 
+## Implemented Logs And Dashboards Capability
+
+- Loki `7.3.0` and Alloy `1.13.0` are independently checksum-pinned releases. Their
+  Loki, Alloy, and config-reloader workload images are pinned by digest.
+- Loki runs as one restricted single-binary StatefulSet in `observability`, with 48-hour
+  retention, an 8 GiB local-path claim, and bounded ingestion, burst, query, CPU, and
+  memory settings. Gateway, canary, caches, test, and rule-sidecar workloads are disabled.
+- Alloy runs as one restricted Deployment and reads selected pod logs and Kubernetes
+  events through the Kubernetes API. It uses no host network, host namespaces, or host
+  filesystem mounts; only node exporter consumes the node-agent security exception.
+- Ingestion processing redacts credential-shaped headers, cookies, tokens, passwords,
+  sensitive query parameters, request bodies, user IDs, and email fields, and truncates
+  oversized lines. Collection is allowlisted to system/platform namespaces.
+- Grafana has a declarative Loki data source and a Viewer-accessible platform logs and
+  events dashboard. Apply mode proves harmless pod logs and events are queryable and a
+  secret-shaped marker is redacted before ingestion; check mode is read-only.
+
 ## Verified State
 
-- Deterministic rendering passes with 182 objects and SHA-256
-  `e8f51552ab743c095ca41905f5cb21c00672e1ccd947793814c020b8c2a3d3a4`.
+- Deterministic rendering passes with 200 objects and SHA-256
+  `45728aa54cadbbee79aec5a35826cfb42b5091e170b637bc34cdfab61225573f`.
 - Cert-manager controller, cainjector, webhook, and the certificate smoke deployment are
   Available. Both the private CA and leaf Certificate report Ready.
 - Private HTTPS, certificate chain, SAN, and expiry checks pass.
 - Prometheus returns `node_uname_info`; Grafana and Alertmanager health checks pass; an
   apply-time alert reaches the Phase 3 receiver and is removed afterward. Check mode
   leaves receiver event count unchanged at zero.
+- Loki and Alloy report ready. Apply-time pod-log, Kubernetes-event, and redaction probes
+  pass; the secret marker is absent from Loki and the redaction marker is queryable.
+  Check mode creates no probe Pod and retains the apply-time proof in evidence.
 - A repeat apply reports `drift_before: false`; Helm revisions remained
-  `cert-manager:2`, `monitoring:2`, and `node-exporter:2`, proving the unchanged operation
-  did not create release revisions.
+  `cert-manager:2`, `monitoring:4`, `node-exporter:2`, `loki:1`, and `alloy:1`, proving
+  the unchanged operation did not create release revisions.
 - The Phase 6 check passes and writes redacted evidence to
   `execution/k3s/.evidence/test/phase-6-cluster-addons.json`.
 
 ## Remaining Work
 
-- Implement Alloy/Loki, reusing the dedicated node-agent exception only for reviewed
-  host log access.
 - Exercise short-lifetime certificate renewal and add expiry alerting after metrics is
   available.
 - Replace the temporary add-on `cluster-admin` binding with split least-privilege roles.

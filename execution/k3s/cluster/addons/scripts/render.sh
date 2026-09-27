@@ -56,3 +56,33 @@ if [[ "$metrics_enabled" == "true" ]]; then
   printf '%s\n' '---'
   cat "$node_resources"
 fi
+
+logs_enabled="$(python3 - "$K3S_DIR/environments/$environment/platform.yml" <<'PY'
+import sys, yaml
+print(str(yaml.safe_load(open(sys.argv[1], encoding="utf-8"))["cluster_addons"]["capabilities"]["logs"]).lower())
+PY
+)"
+if [[ "$logs_enabled" == "true" ]]; then
+  logs_values="$ADDONS_DIR/logs/values/$environment.yaml"
+  logs_resources="$ADDONS_DIR/logs/resources/$environment.yaml"
+  agent_values="$ADDONS_DIR/log-agent/values/$environment.yaml"
+  agent_resources="$ADDONS_DIR/log-agent/resources/$environment.yaml"
+  [[ -f "$logs_values" && -f "$logs_resources" && -f "$agent_values" && -f "$agent_resources" ]] || {
+    echo "error: logs profile does not exist: $environment" >&2
+    exit 1
+  }
+  "$SCRIPT_DIR/acquire.sh" logs "$temporary/logs.tgz"
+  "$SCRIPT_DIR/acquire.sh" log_agent "$temporary/log-agent.tgz"
+  printf '\n%s\n' '---'
+  "$HELM" template loki "$temporary/logs.tgz" \
+    --namespace observability \
+    --values "$logs_values"
+  printf '%s\n' '---'
+  cat "$logs_resources"
+  printf '\n%s\n' '---'
+  "$HELM" template alloy "$temporary/log-agent.tgz" \
+    --namespace observability \
+    --values "$agent_values"
+  printf '%s\n' '---'
+  cat "$agent_resources"
+fi

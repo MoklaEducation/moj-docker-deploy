@@ -45,12 +45,18 @@ def build_report(environment, mode, phase5, render, runtime, existing=None):
     })
     certificate_smoke = runtime.get("certificate_smoke") or existing.get("certificate_smoke", {})
     metrics_smoke = runtime.get("metrics_smoke") or existing.get("metrics_smoke", {})
+    logs_smoke = runtime.get("logs_smoke") or existing.get("logs_smoke", {})
     if metrics_smoke.get("alert_delivery") == "not_run_in_check_mode":
         prior_delivery = existing.get("metrics_smoke", {}).get("alert_delivery")
         if prior_delivery:
             metrics_smoke["alert_delivery"] = prior_delivery
             if existing.get("metrics_smoke", {}).get("probe_id"):
                 metrics_smoke["probe_id"] = existing["metrics_smoke"]["probe_id"]
+    if logs_smoke.get("ingestion") == "not_run_in_check_mode":
+        prior_logs = existing.get("logs_smoke", {})
+        for key in ("ingestion", "redaction", "events", "probe_id"):
+            if key in prior_logs:
+                logs_smoke[key] = prior_logs[key]
     return {
         "schema_version": "1",
         "phase": "phase-6-cluster-addons",
@@ -73,6 +79,7 @@ def build_report(environment, mode, phase5, render, runtime, existing=None):
         "releases": runtime.get("releases", []),
         "certificate_smoke": certificate_smoke,
         "metrics_smoke": metrics_smoke,
+        "logs_smoke": logs_smoke,
         "deferred": runtime.get("deferred", {"metrics": True, "logs": True, "backups": True, "off_host_recovery": True}),
         "checks": runtime.get("checks", []),
         "lifecycle": {"runs": runs[-20:]},

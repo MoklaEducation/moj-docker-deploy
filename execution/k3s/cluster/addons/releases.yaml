@@ -37,3 +37,22 @@ releases:
       sha256: 9781c208d90e95d67495fdc7985dc8d9c21a25996ae807a25b24fd191dedbeb4
     images:
       node_exporter: quay.io/prometheus/node-exporter:v1.12.1@sha256:1b4e4438faca4dd7e001dd445d161a4a2091b0fededa84093b3a8dfeae1f1be0
+  logs:
+    name: loki
+    namespace: observability
+    chart:
+      url: https://github.com/grafana/helm-charts/releases/download/helm-loki-7.3.0/loki-7.3.0.tgz
+      version: 7.3.0
+      sha256: 04a339f712d770a1f599f05fc0a5a3cde18e43914e49ae6a49f7171be86bcc09
+    images:
+      loki: docker.io/grafana/loki@sha256:44148ad243c07957113baea950ee5ba9b0c8eff8d7e38ff3cc1c0af705790945
+  log_agent:
+    name: alloy
+    namespace: observability
+    chart:
+      url: https://github.com/grafana/helm-charts/releases/download/alloy-1.13.0/alloy-1.13.0.tgz
+      version: 1.13.0
+      sha256: bfdda6cb770c3526444897b9cb5a4fb33711c608d364d9e7857ec699a2fff4fb
+    images:
+      alloy: docker.io/grafana/alloy@sha256:f111cce835516c5f99166342be7038496b52ced16667be5a11e19258a3e4cd30
+      config_reloader: quay.io/prometheus-operator/prometheus-config-reloader@sha256:142a1f11df8dd165f00375b0b1826aecb9c9adeb05c39855893138d7c7575ff7
