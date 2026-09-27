@@ -215,7 +215,7 @@ cluster_addons:
     mode: port-forward
   capabilities:
     certificates: true
-    metrics: false
+    metrics: true
     logs: false
     backups: false
   certificates:
@@ -224,3 +224,11 @@ cluster_addons:
     duration: 168h
     renew_before: 24h
     ingress_class: traefik
+  metrics:
+    retention: 48h
+    scrape_interval: 30s
+    evaluation_interval: 30s
+    prometheus_storage: 8G
+    alertmanager_storage: 1G
+    grafana_storage: 2G
+    alert_receiver_endpoint: http://192.168.1.151:9080/alerts

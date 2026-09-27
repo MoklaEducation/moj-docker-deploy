@@ -14,6 +14,7 @@ import yaml
 
 IMAGE = re.compile(r"^[^@\s]+@sha256:[0-9a-f]{64}$")
 DURATION = re.compile(r"^([1-9][0-9]*)h$")
+NODE_AGENT_HOST_PATHS = {"/", "/proc", "/sys"}
 
 
 def parse_args():
@@ -43,19 +44,53 @@ def pod_specs(document):
     return []
 
 
+def enabled_release_names(platform):
+    names = ["certificates"]
+    if platform["cluster_addons"]["capabilities"]["metrics"]:
+        names.extend(("metrics", "node_metrics"))
+    return names
+
+
+def node_agent_exception(document, spec):
+    metadata = document.get("metadata", {})
+    host_paths = {
+        volume["hostPath"].get("path")
+        for volume in spec.get("volumes", []) if volume.get("hostPath")
+    }
+    mounts = [
+        mount for container in spec.get("containers", [])
+        for mount in container.get("volumeMounts", []) if mount.get("name") in {"proc", "sys", "root"}
+    ]
+    return (
+        document.get("kind") == "DaemonSet"
+        and metadata.get("namespace") == "observability-agents"
+        and metadata.get("name") == "node-exporter"
+        and spec.get("hostNetwork") is True
+        and spec.get("hostPID") is True
+        and not spec.get("hostIPC", False)
+        and host_paths == NODE_AGENT_HOST_PATHS
+        and mounts
+        and all(mount.get("readOnly") is True for mount in mounts)
+    )
+
+
 def validate(platform, releases, documents, repository):
     errors = []
     addons = platform["cluster_addons"]
-    release = releases["releases"]["certificates"]
+    inventory = releases["releases"]
+    release = inventory["certificates"]
     expected_namespace = addons["namespaces"]["certificates"]
     if release["name"] != "cert-manager" or release["namespace"] != expected_namespace:
         errors.append(("cluster_addons.release", "certificate release name or namespace differs from the contract"))
-    if release["chart"]["version"] not in release["chart"]["url"]:
-        errors.append(("cluster_addons.chart.version", "chart URL does not contain the pinned version"))
-    if not re.fullmatch(r"[0-9a-f]{64}", release["chart"]["sha256"]):
-        errors.append(("cluster_addons.chart.sha256", "chart checksum is not SHA-256"))
-    if not all(IMAGE.fullmatch(image) for image in release["images"].values()):
-        errors.append(("cluster_addons.images", "release inventory contains a mutable image"))
+    release_names = enabled_release_names(platform)
+    for release_name in release_names:
+        item = inventory[release_name]
+        if str(item["chart"]["version"]) not in item["chart"]["url"]:
+            errors.append(("cluster_addons.chart.version", f"{release_name} chart URL does not contain the pinned version"))
+        if not re.fullmatch(r"[0-9a-f]{64}", item["chart"]["sha256"]):
+            errors.append(("cluster_addons.chart.sha256", f"{release_name} chart checksum is not SHA-256"))
+        if not all(IMAGE.fullmatch(image) for image in item["images"].values()):
+            errors.append(("cluster_addons.images", f"{release_name} inventory contains a mutable image"))
 
     identity_path = repository / pathlib.PurePosixPath(addons["identity"]["kubeconfig_output"])
     ignored = subprocess.run(
@@ -77,11 +112,17 @@ def validate(platform, releases, documents, repository):
     labels = namespace.get("metadata", {}).get("labels", {})
     if labels.get("pod-security.kubernetes.io/enforce") != "restricted":
         errors.append(("cluster_addons.render.pod_security", "certificate namespace must enforce restricted Pod Security"))
+    if addons["capabilities"]["metrics"]:
+        agent_namespace = namespaces.get(addons["namespaces"]["node_agents"], {})
+        agent_labels = agent_namespace.get("metadata", {}).get("labels", {})
+        if agent_labels.get("pod-security.kubernetes.io/enforce") != "privileged" or agent_labels.get("platform.mokla/security-exception") != "node-observability-host-access":
+            errors.append(("cluster_addons.render.node_security", "node-agent namespace lacks its scoped host-access exception"))
 
     rendered_images = set()
     for document in documents:
         for spec in pod_specs(document):
-            if spec.get("hostNetwork") or any(volume.get("hostPath") for volume in spec.get("volumes", [])):
+            host_access = spec.get("hostNetwork") or spec.get("hostPID") or spec.get("hostIPC") or any(volume.get("hostPath") for volume in spec.get("volumes", []))
+            if host_access and not node_agent_exception(document, spec):
                 errors.append(("cluster_addons.render.host_access", f"{object_id(document)} requests host access"))
             pod_security = spec.get("securityContext", {})
             if pod_security.get("seccompProfile", {}).get("type") != "RuntimeDefault":
@@ -97,7 +138,18 @@ def validate(platform, releases, documents, repository):
                 if security.get("privileged") or security.get("allowPrivilegeEscalation") is not False:
                     errors.append(("cluster_addons.render.security", f"{object_id(document)} has unsafe container security"))
 
-    allowed_images = set(release["images"].values()) | {platform["cluster_core"]["smoke_image"]}
+        if document.get("kind") in {"Prometheus", "Alertmanager"}:
+            spec = document.get("spec", {})
+            image = spec.get("image", "")
+            rendered_images.add(image)
+            if not IMAGE.fullmatch(image):
+                errors.append(("cluster_addons.render.image", f"{object_id(document)} has mutable image {image}"))
+            if not spec.get("resources", {}).get("requests") or not spec.get("resources", {}).get("limits"):
+                errors.append(("cluster_addons.render.resources", f"{object_id(document)} lacks resource bounds"))
+
+    allowed_images = {
+        image for release_name in release_names for image in inventory[release_name]["images"].values()
+    } | {platform["cluster_core"]["smoke_image"]}
     if not rendered_images.issubset(allowed_images):
         errors.append(("cluster_addons.render.inventory", "rendered workload images differ from the release inventory"))
 
@@ -112,12 +164,15 @@ def validate(platform, releases, documents, repository):
 
 
 def build_facts(rendered, releases, documents):
-    release = releases["releases"]["certificates"]
+    inventory = releases["releases"]
     return {
         "rendered_sha256": hashlib.sha256(rendered.encode("utf-8")).hexdigest(),
         "object_count": len(documents),
-        "chart": {"name": release["name"], "version": release["chart"]["version"], "sha256": release["chart"]["sha256"]},
-        "images": release["images"],
+        "charts": {
+            name: {"name": release["name"], "version": release["chart"]["version"], "sha256": release["chart"]["sha256"]}
+            for name, release in inventory.items()
+        },
+        "images": {name: release["images"] for name, release in inventory.items()},
         "managed_objects": [
             {"kind": kind, "namespace": namespace or None, "name": name}
             for kind, namespace, name in sorted(object_id(document) for document in documents)
@@ -131,7 +186,8 @@ def main():
         platform = yaml.safe_load(args.platform.read_text(encoding="utf-8"))
         releases = yaml.safe_load(args.releases.read_text(encoding="utf-8"))
         rendered = args.manifest.read_text(encoding="utf-8")
-        documents = [document for document in yaml.safe_load_all(rendered) if document]
+        parseable = re.sub(r"(?m)^(\s*)- =$", r"\1- '='", rendered)
+        documents = [document for document in yaml.safe_load_all(parseable) if document]
         errors = validate(platform, releases, documents, args.repository.resolve())
     except (KeyError, TypeError, ValueError, OSError, yaml.YAMLError) as exc:
         print(f"Phase 6 render validation: fail ({exc})", file=sys.stderr)

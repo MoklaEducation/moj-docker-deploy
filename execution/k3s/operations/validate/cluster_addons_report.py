@@ -44,6 +44,13 @@ def build_report(environment, mode, phase5, render, runtime, existing=None):
         "overall_status": runtime.get("overall_status", "fail"),
     })
     certificate_smoke = runtime.get("certificate_smoke") or existing.get("certificate_smoke", {})
+    metrics_smoke = runtime.get("metrics_smoke") or existing.get("metrics_smoke", {})
+    if metrics_smoke.get("alert_delivery") == "not_run_in_check_mode":
+        prior_delivery = existing.get("metrics_smoke", {}).get("alert_delivery")
+        if prior_delivery:
+            metrics_smoke["alert_delivery"] = prior_delivery
+            if existing.get("metrics_smoke", {}).get("probe_id"):
+                metrics_smoke["probe_id"] = existing["metrics_smoke"]["probe_id"]
     return {
         "schema_version": "1",
         "phase": "phase-6-cluster-addons",
@@ -59,12 +66,13 @@ def build_report(environment, mode, phase5, render, runtime, existing=None):
         }],
         "rendered_sha256": render.get("rendered_sha256"),
         "object_count": render.get("object_count"),
-        "chart": render.get("chart", {}),
+        "charts": render.get("charts", {}),
         "images": render.get("images", {}),
         "credential_mode": runtime.get("credential_mode"),
         "drift_before": runtime.get("drift_before"),
-        "release": runtime.get("release", {}),
+        "releases": runtime.get("releases", []),
         "certificate_smoke": certificate_smoke,
+        "metrics_smoke": metrics_smoke,
         "deferred": runtime.get("deferred", {"metrics": True, "logs": True, "backups": True, "off_host_recovery": True}),
         "checks": runtime.get("checks", []),
         "lifecycle": {"runs": runs[-20:]},

@@ -29,6 +29,19 @@ class ClusterAddonsReportTests(unittest.TestCase):
         self.assertEqual("bootstrap_required", report["overall_status"])
         self.assertTrue(report["deferred"]["backups"])
 
+    def test_check_preserves_apply_time_alert_delivery(self):
+        applied = MODULE.build_report(
+            "test", "apply", {}, {},
+            {"overall_status": "pass", "metrics_smoke": {"alert_delivery": "passed", "probe_id": "probe-1"}},
+        )
+        checked = MODULE.build_report(
+            "test", "check", {}, {},
+            {"overall_status": "pass", "metrics_smoke": {"alert_delivery": "not_run_in_check_mode"}},
+            applied,
+        )
+        self.assertEqual("passed", checked["metrics_smoke"]["alert_delivery"])
+        self.assertEqual("probe-1", checked["metrics_smoke"]["probe_id"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
-"""Reconcile and verify the Phase 6 certificate capability."""
+"""Reconcile and verify enabled Phase 6 cluster add-on capabilities."""
 
 import argparse
 import base64
+import datetime as dt
 import json
 import pathlib
 import subprocess
 import sys
 import tempfile
 import time
+import urllib.parse
+import urllib.request
+import uuid
 
 import yaml
 
@@ -24,8 +28,8 @@ def parse_args():
     parser.add_argument("--platform", type=pathlib.Path, required=True)
     parser.add_argument("--repository", type=pathlib.Path, required=True)
     parser.add_argument("--releases", type=pathlib.Path, required=True)
-    parser.add_argument("--values", type=pathlib.Path, required=True)
-    parser.add_argument("--resources", type=pathlib.Path, required=True)
+    parser.add_argument("--release", action="append", nargs=2, metavar=("NAME", "VALUES"), required=True)
+    parser.add_argument("--resources", action="append", type=pathlib.Path, required=True)
     parser.add_argument("--acquire", type=pathlib.Path, required=True)
     parser.add_argument("--phase-5-report", type=pathlib.Path, required=True)
     parser.add_argument("--report", type=pathlib.Path, required=True)
@@ -104,6 +108,97 @@ def wait_for_certificates(kubeconfig, namespace):
         kubectl(kubeconfig, "-n", namespace, "wait", "--for=condition=Ready", f"certificate/{certificate}", "--timeout=300s")
 
 
+def wait_for_metrics(kubeconfig):
+    namespace = "observability"
+    for deployment in ("monitoring-grafana", "monitoring-kube-state-metrics", "monitoring-kube-prometheus-operator"):
+        kubectl(kubeconfig, "-n", namespace, "rollout", "status", f"deployment/{deployment}", "--timeout=600s")
+    for statefulset in ("alertmanager-monitoring-kube-prometheus-alertmanager", "prometheus-monitoring-kube-prometheus-prometheus"):
+        kubectl(kubeconfig, "-n", namespace, "rollout", "status", f"statefulset/{statefulset}", "--timeout=600s")
+    kubectl(kubeconfig, "-n", "observability-agents", "rollout", "status", "daemonset/node-exporter", "--timeout=600s")
+
+
+def service_proxy(kubeconfig, service, port, path, *, payload=None, expect_json=True):
+    raw = f"/api/v1/namespaces/observability/services/http:{service}:{port}/proxy{path}"
+    if payload is None:
+        result = kubectl(kubeconfig, "get", f"--raw={raw}")
+        response = result.stdout
+    else:
+        service_document = json.loads(kubectl(
+            kubeconfig, "-n", "observability", "get", "service", service, "-o", "json",
+        ).stdout)
+        request = urllib.request.Request(
+            f"http://{service_document['spec']['clusterIP']}:{port}{path}",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=10) as direct_response:
+            response = direct_response.read().decode("utf-8")
+    if not expect_json:
+        return response.strip()
+    return json.loads(response) if response.strip() else {}
+
+
+def receiver_request(endpoint, path, *, method="GET"):
+    base = endpoint.rsplit("/", 1)[0]
+    request = urllib.request.Request(f"{base}{path}", method=method)
+    with urllib.request.urlopen(request, timeout=10) as response:
+        body = response.read()
+    return json.loads(body) if body else {}
+
+
+def metrics_smoke(kubeconfig, platform, mode):
+    prometheus_service = "monitoring-kube-prometheus-prometheus"
+    query = urllib.parse.quote("node_uname_info", safe="")
+    for _ in range(45):
+        prometheus = service_proxy(kubeconfig, prometheus_service, 9090, f"/api/v1/query?query={query}")
+        results = prometheus.get("data", {}).get("result", [])
+        if prometheus.get("status") == "success" and results:
+            break
+        time.sleep(2)
+    else:
+        raise RuntimeError("Prometheus did not return node-exporter metrics")
+    grafana = service_proxy(kubeconfig, "monitoring-grafana", 80, "/api/health")
+    if grafana.get("database") != "ok":
+        raise RuntimeError("Grafana health check did not report a healthy database")
+    service_proxy(kubeconfig, "monitoring-kube-prometheus-alertmanager", 9093, "/-/ready", expect_json=False)
+    smoke = {
+        "prometheus_ready": True,
+        "node_metrics_ready": True,
+        "grafana_ready": True,
+        "alertmanager_ready": True,
+        "alert_delivery": "not_run_in_check_mode",
+    }
+    if mode != "apply":
+        return smoke
+
+    endpoint = platform["cluster_addons"]["metrics"]["alert_receiver_endpoint"]
+    if endpoint != platform["external_platform_services"]["alert_receiver"]["endpoint"]:
+        raise RuntimeError("Phase 6 alert receiver differs from the Phase 3 service contract")
+    probe_id = uuid.uuid4().hex
+    receiver_request(endpoint, "/events", method="DELETE")
+    now = dt.datetime.now(dt.timezone.utc)
+    service_proxy(kubeconfig, "monitoring-kube-prometheus-alertmanager", 9093, "/api/v2/alerts", payload=[{
+        "labels": {"alertname": "MoklaPhase6Probe", "probe_id": probe_id, "severity": "test"},
+        "annotations": {"summary": "Phase 6 alert delivery probe"},
+        "startsAt": now.isoformat(),
+        "endsAt": (now + dt.timedelta(minutes=2)).isoformat(),
+    }])
+    try:
+        for _ in range(30):
+            events = receiver_request(endpoint, "/events").get("events", [])
+            if any(event.get("probe_id") == probe_id and event.get("alertname") == "MoklaPhase6Probe" for event in events):
+                smoke["alert_delivery"] = "passed"
+                smoke["probe_id"] = probe_id
+                break
+            time.sleep(2)
+        else:
+            raise RuntimeError("Alertmanager webhook probe was not delivered to the Phase 3 receiver")
+    finally:
+        receiver_request(endpoint, "/events", method="DELETE")
+    return smoke
+
+
 def certificate_smoke(kubeconfig, platform):
     addons = platform["cluster_addons"]
     namespace = addons["namespaces"]["certificates"]
@@ -143,13 +238,18 @@ def main():
         repository = args.repository.resolve()
         platform = yaml.safe_load(args.platform.read_text(encoding="utf-8"))
         releases = yaml.safe_load(args.releases.read_text(encoding="utf-8"))
-        values = yaml.safe_load(args.values.read_text(encoding="utf-8"))
-        documents = [document for document in yaml.safe_load_all(args.resources.read_text(encoding="utf-8")) if document]
+        configured_releases = [(name, pathlib.Path(values_path)) for name, values_path in args.release]
+        documents = [
+            document
+            for resource_path in args.resources
+            for document in yaml.safe_load_all(resource_path.read_text(encoding="utf-8"))
+            if document
+        ]
         phase5 = json.loads(args.phase_5_report.read_text(encoding="utf-8"))
         if phase5.get("overall_status") != "pass":
             raise RuntimeError("current passing Phase 5 evidence is required")
 
-        release = releases["releases"]["certificates"]
+        release_inventory = releases["releases"]
         identity = platform["cluster_addons"]["identity"]
         admin_kubeconfig = repository / platform["k3s"]["kubeconfig_output"]
         server, ca_data = access.load_admin_cluster(admin_kubeconfig)
@@ -157,12 +257,15 @@ def main():
         ready = identity_valid(repository, identity, server)
         bootstrap_documents = [document for document in documents if document.get("kind") in BOOTSTRAP_KINDS]
         routine_documents = [document for document in documents if document.get("kind") not in BOOTSTRAP_KINDS]
-        namespace_exists = kubectl(
-            admin_kubeconfig, "get", "namespace", release["namespace"], check=False,
-        ).returncode == 0
+        existing_namespaces = {
+            release_inventory[name]["namespace"]
+            for name, _ in configured_releases
+            if kubectl(admin_kubeconfig, "get", "namespace", release_inventory[name]["namespace"], check=False).returncode == 0
+        }
         validation_documents = [
             document for document in bootstrap_documents
-            if namespace_exists or not document.get("metadata", {}).get("namespace")
+            if not document.get("metadata", {}).get("namespace")
+            or document["metadata"]["namespace"] in existing_namespaces
         ]
 
         kubectl(admin_kubeconfig, "apply", "--server-side", "--dry-run=server", "--field-manager=mokla-cluster-addons-bootstrap", "-f", "-", stdin=dump_documents(validation_documents))
@@ -171,7 +274,16 @@ def main():
         )
         if args.mode == "apply":
             if bootstrap_drift:
-                apply_documents(admin_kubeconfig, bootstrap_documents, "mokla-cluster-addons-bootstrap")
+                foundation_documents = [document for document in bootstrap_documents if not document.get("metadata", {}).get("namespace")]
+                namespaced_documents = [document for document in bootstrap_documents if document.get("metadata", {}).get("namespace")]
+                apply_documents(admin_kubeconfig, foundation_documents, "mokla-cluster-addons-bootstrap")
+                for document in foundation_documents:
+                    if document.get("kind") == "Namespace":
+                        kubectl(
+                            admin_kubeconfig, "wait", "--for=jsonpath={.status.phase}=Active",
+                            f"namespace/{document['metadata']['name']}", "--timeout=60s",
+                        )
+                apply_documents(admin_kubeconfig, namespaced_documents, "mokla-cluster-addons-bootstrap")
             if not ready:
                 access.issue_identity(admin_kubeconfig, repository, identity, server, ca_data, "phase6")
                 ready = True
@@ -185,35 +297,53 @@ def main():
             })
         else:
             access.validate_kubeconfig(addon_kubeconfig, identity["name"], server)
+            release_results = []
             with tempfile.TemporaryDirectory(prefix="mokla-phase6-chart-") as directory:
-                chart = pathlib.Path(directory) / "cert-manager.tgz"
-                run([args.acquire, "certificates", chart])
-                values_match = release_values_match(repository / "execution/k3s/.controller-venv/bin/helm", addon_kubeconfig, release, values)
-                values_drift = not values_match
-                resources_drift = project_drift(addon_kubeconfig, routine_documents) if values_match else True
-                drift_before = bootstrap_drift or values_drift or resources_drift
-                if args.mode == "apply":
-                    if values_drift:
+                values_drift = False
+                helm_binary = repository / "execution/k3s/.controller-venv/bin/helm"
+                for release_name, values_path in configured_releases:
+                    release = release_inventory[release_name]
+                    values = yaml.safe_load(values_path.read_text(encoding="utf-8"))
+                    chart = pathlib.Path(directory) / f"{release_name}.tgz"
+                    run([args.acquire, release_name, chart])
+                    matches = release_values_match(helm_binary, addon_kubeconfig, release, values)
+                    values_drift = values_drift or not matches
+                    if args.mode == "apply" and not matches:
                         helm(
-                            repository / "execution/k3s/.controller-venv/bin/helm", addon_kubeconfig,
+                            helm_binary, addon_kubeconfig,
                             "upgrade", "--install", release["name"], chart,
-                            "--namespace", release["namespace"], "--values", args.values,
+                            "--namespace", release["namespace"], "--create-namespace", "--values", values_path,
                             "--wait", "--timeout", "5m", "--history-max", "5",
                         )
-                    if resources_drift:
+                    release_results.append({
+                        "capability": release_name,
+                        "name": release["name"],
+                        "namespace": release["namespace"],
+                        "version": release["chart"]["version"],
+                        "drift_before": not matches,
+                    })
+                resources_drift = project_drift(addon_kubeconfig, routine_documents) if routine_documents else False
+                drift_before = bootstrap_drift or values_drift or resources_drift
+                if args.mode == "apply" and resources_drift:
                         apply_documents(addon_kubeconfig, routine_documents, "mokla-cluster-addons")
-            wait_for_certificates(addon_kubeconfig, release["namespace"])
+            wait_for_certificates(addon_kubeconfig, release_inventory["certificates"]["namespace"])
+            if platform["cluster_addons"]["capabilities"]["metrics"]:
+                wait_for_metrics(addon_kubeconfig)
             smoke = certificate_smoke(addon_kubeconfig, platform)
+            monitoring_smoke = metrics_smoke(addon_kubeconfig, platform, args.mode) if platform["cluster_addons"]["capabilities"]["metrics"] else {}
             runtime.update({
                 "credential_mode": "fixed-test-identity",
                 "restricted_credentials_ready": True,
                 "drift_before": drift_before,
-                "release": {"name": release["name"], "namespace": release["namespace"], "version": release["chart"]["version"]},
+                "releases": release_results,
                 "certificate_smoke": smoke,
-                "deferred": {"metrics": True, "logs": True, "backups": True, "off_host_recovery": True},
+                "metrics_smoke": monitoring_smoke,
+                "deferred": {"metrics": False, "logs": True, "backups": True, "off_host_recovery": True},
                 "checks": [
                     {"id": "cluster_addons.access", "status": "pass", "evidence": "fixed test identity authenticated"},
                     {"id": "cluster_addons.certificates", "status": "pass", "evidence": "private issuer, chain, SAN, and HTTPS passed"},
+                    {"id": "cluster_addons.metrics", "status": "pass", "evidence": "Prometheus, node metrics, Grafana, and Alertmanager passed"},
+                    {"id": "cluster_addons.alert_delivery", "status": "pass" if monitoring_smoke.get("alert_delivery") == "passed" else "not_run", "evidence": monitoring_smoke.get("alert_delivery")},
                 ],
                 "overall_status": "pass",
             })

@@ -5,14 +5,17 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ADDONS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 release="${1:-}"
 output="${2:-}"
-[[ "$release" == "certificates" && -n "$output" ]] || {
-  echo "usage: $0 certificates <output-path>" >&2
+[[ "$release" =~ ^[a-z][a-z0-9_]*$ && -n "$output" ]] || {
+  echo "usage: $0 <release> <output-path>" >&2
   exit 2
 }
 
 readarray -t chart < <(python3 - "$ADDONS_DIR/releases.yaml" "$release" <<'PY'
 import sys, yaml
-item = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))["releases"][sys.argv[2]]["chart"]
+inventory = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))["releases"]
+if sys.argv[2] not in inventory:
+  raise SystemExit(f"error: unknown release: {sys.argv[2]}")
+item = inventory[sys.argv[2]]["chart"]
 print(item["url"])
 print(item["sha256"])
 PY

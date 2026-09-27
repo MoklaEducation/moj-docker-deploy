@@ -13,3 +13,27 @@ releases:
       cainjector: quay.io/jetstack/cert-manager-cainjector@sha256:af59e01ad9756a1034fbf948330e75702e5d79b3577f323f6a9947707ba262fc
       startupapicheck: quay.io/jetstack/cert-manager-startupapicheck@sha256:1075e097415167caa584b203292dfb57e46866df0adb76fe769ef5cb0297ccc4
       acmesolver: quay.io/jetstack/cert-manager-acmesolver@sha256:1c81a771e3e3a210466aa25f5fc05ce5c286e0eb90d96563cc0275aaa50788c2
+  metrics:
+    name: monitoring
+    namespace: observability
+    chart:
+      url: https://github.com/prometheus-community/helm-charts/releases/download/kube-prometheus-stack-91.7.0/kube-prometheus-stack-91.7.0.tgz
+      version: 91.7.0
+      sha256: 989701d6d289a8303b2357e9fcd40522f82932e36ae0d960ed9f9271e167a5bb
+    images:
+      prometheus: quay.io/prometheus/prometheus:v3.15.0-distroless@sha256:b2a413d5a03ea6a76782a508d1c7947440bba3b973931a25676e278431891b01
+      alertmanager: quay.io/prometheus/alertmanager:v0.34.1@sha256:e9733bafb1bdef9b00e25a21f8f99dc26a22224bf16641ad754d1649f4c3357a
+      operator: quay.io/prometheus-operator/prometheus-operator:v0.94.1@sha256:7c88d4e7bae63bd8d0f8da986054337c23b4472fa8d3c6817f5bc4b8407a2d6a
+      config_reloader: quay.io/prometheus-operator/prometheus-config-reloader@sha256:06b52bd4dbe3ed6dd5905aadaf8b9987d9da4c31d37bb86deaadae68cee2d26b
+      kube_state_metrics: registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.20.0@sha256:42cfe3723a5f058171c627537fb57a3ea0f26e4380fa18555a95cb1a1b4cfc5b
+      grafana: docker.io/grafana/grafana:13.2.2-distroless@sha256:69a5d2d957ca0bba434c160dcd4f2d07de9d6c756a0ba10ae7f52b72ced1e4cc
+      grafana_sidecar: quay.io/kiwigrid/k8s-sidecar:2.11.2@sha256:2912be006f62f9ea080194cf6d3afcd90daead8d101d0ba686a137a849f6a4f6
+  node_metrics:
+    name: node-exporter
+    namespace: observability-agents
+    chart:
+      url: https://github.com/prometheus-community/helm-charts/releases/download/prometheus-node-exporter-4.58.0/prometheus-node-exporter-4.58.0.tgz
+      version: 4.58.0
+      sha256: 9781c208d90e95d67495fdc7985dc8d9c21a25996ae807a25b24fd191dedbeb4
+    images:
+      node_exporter: quay.io/prometheus/node-exporter:v1.12.1@sha256:1b4e4438faca4dd7e001dd445d161a4a2091b0fededa84093b3a8dfeae1f1be0

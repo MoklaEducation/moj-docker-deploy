@@ -1,0 +1,37 @@
+fullnameOverride: node-exporter
+
+image:
+  digest: sha256:1b4e4438faca4dd7e001dd445d161a4a2091b0fededa84093b3a8dfeae1f1be0
+
+serviceAccount:
+  automountServiceAccountToken: false
+
+prometheus:
+  monitor:
+    enabled: true
+    namespace: observability-agents
+    additionalLabels:
+      release: monitoring
+    interval: 30s
+
+resources:
+  requests: {cpu: 50m, memory: 64Mi}
+  limits: {cpu: 200m, memory: 128Mi}
+
+securityContext:
+  fsGroup: 65534
+  runAsGroup: 65534
+  runAsNonRoot: true
+  runAsUser: 65534
+  seccompProfile: {type: RuntimeDefault}
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities: {drop: [ALL]}
+  readOnlyRootFilesystem: true
+
+hostNetwork: true
+hostPID: true
+hostIPC: false
+hostRootFsMount:
+  enabled: true
+  mountPropagation: HostToContainer

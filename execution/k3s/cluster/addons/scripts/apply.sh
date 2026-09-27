@@ -22,8 +22,12 @@ exec python3 "$K3S_DIR/operations/validate/cluster_addons_runtime.py" \
   --platform "$K3S_DIR/environments/$environment/platform.yml" \
   --repository "$REPOSITORY" \
   --releases "$ADDONS_DIR/releases.yaml" \
-  --values "$ADDONS_DIR/certificates/values/$environment.yaml" \
+  --release certificates "$ADDONS_DIR/certificates/values/$environment.yaml" \
+  --release metrics "$ADDONS_DIR/metrics/values/$environment.yaml" \
+  --release node_metrics "$ADDONS_DIR/node-metrics/values/$environment.yaml" \
   --resources "$ADDONS_DIR/certificates/resources/$environment.yaml" \
+  --resources "$ADDONS_DIR/metrics/resources/$environment.yaml" \
+  --resources "$ADDONS_DIR/node-metrics/resources/$environment.yaml" \
   --acquire "$SCRIPT_DIR/acquire.sh" \
   --phase-5-report "$K3S_DIR/.evidence/$environment/phase-5-cluster-core.json" \
   --report "$report"
