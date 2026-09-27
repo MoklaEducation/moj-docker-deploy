@@ -19,6 +19,9 @@ K3S_REPORT="$SCRIPT_DIR/operations/validate/k3s_installation_report.py"
 CLUSTER_CORE_VALIDATE="$SCRIPT_DIR/cluster/core/scripts/validate.sh"
 CLUSTER_CORE_APPLY="$SCRIPT_DIR/cluster/core/scripts/apply.sh"
 CLUSTER_CORE_REPORT="$SCRIPT_DIR/operations/validate/cluster_core_report.py"
+CLUSTER_ADDONS_VALIDATE="$SCRIPT_DIR/cluster/addons/scripts/validate.sh"
+CLUSTER_ADDONS_APPLY="$SCRIPT_DIR/cluster/addons/scripts/apply.sh"
+CLUSTER_ADDONS_REPORT="$SCRIPT_DIR/operations/validate/cluster_addons_report.py"
 CONTROLLER_VENV="$SCRIPT_DIR/.controller-venv"
 
 if [[ -x "$CONTROLLER_VENV/bin/python3" ]]; then
@@ -37,6 +40,8 @@ Usage:
   ./execution/k3s/bootstrap.sh apply --environment NAME --through k3s-installation
   ./execution/k3s/bootstrap.sh check --environment NAME --through cluster-core
   ./execution/k3s/bootstrap.sh apply --environment NAME --through cluster-core
+  ./execution/k3s/bootstrap.sh check --environment NAME --through cluster-addons
+  ./execution/k3s/bootstrap.sh apply --environment NAME --through cluster-addons
 
 The check action is non-mutating. The apply action requires an explicit --through
 boundary and never reboots the host automatically.
@@ -66,7 +71,7 @@ done
 
 [[ "$action" == "check" || "$action" == "apply" ]] || die_usage "an action is required"
 [[ -n "$environment" ]] || die_usage "--environment is required"
-[[ -z "$through" || "$through" == "host-baseline" || "$through" == "host-data-services" || "$through" == "k3s-installation" || "$through" == "cluster-core" ]] || die_usage "unsupported phase: $through"
+[[ -z "$through" || "$through" == "host-baseline" || "$through" == "host-data-services" || "$through" == "k3s-installation" || "$through" == "cluster-core" || "$through" == "cluster-addons" ]] || die_usage "unsupported phase: $through"
 [[ "$action" != "apply" || -n "$through" ]] || die_usage "apply requires an explicit --through boundary"
 [[ "$EUID" -ne 0 ]] || { echo "error: do not run bootstrap as root" >&2; exit 1; }
 
@@ -300,4 +305,35 @@ set -e
 if (( phase5_runtime_status != 0 )); then
   exit "$phase5_runtime_status"
 fi
-exit "$phase5_report_status"
+if (( phase5_report_status != 0 )) || [[ "$through" == "cluster-core" ]]; then
+  exit "$phase5_report_status"
+fi
+
+phase6_report_path="$SCRIPT_DIR/.evidence/$environment/phase-6-cluster-addons.json"
+phase6_render_facts_path="$SCRIPT_DIR/.evidence/$environment/.phase-6-render.json"
+phase6_runtime_path="$SCRIPT_DIR/.evidence/$environment/.phase-6-runtime.json"
+trap 'rm -f "$phase2_output" "$phase2_facts_path" "$phase3_output" "$phase3_facts_path" "$phase3_runtime_path" "$phase3_secrets" "$phase4_output" "$phase4_facts_path" "$phase4_runtime_path" "$phase5_render_facts_path" "$phase5_runtime_path" "$phase6_render_facts_path" "$phase6_runtime_path"' EXIT
+rm -f "$phase6_render_facts_path" "$phase6_runtime_path"
+
+"$CLUSTER_ADDONS_VALIDATE" "$environment" "$phase6_render_facts_path"
+
+set +e
+"$CLUSTER_ADDONS_APPLY" "$action" "$environment" "$phase6_runtime_path"
+phase6_runtime_status=$?
+set -e
+
+set +e
+python3 "$CLUSTER_ADDONS_REPORT" \
+  --environment "$environment" \
+  --mode "$action" \
+  --phase-5-report "$phase5_report_path" \
+  --render-facts "$phase6_render_facts_path" \
+  --runtime-report "$phase6_runtime_path" \
+  --report "$phase6_report_path"
+phase6_report_status=$?
+set -e
+
+if (( phase6_runtime_status != 0 )); then
+  exit "$phase6_runtime_status"
+fi
+exit "$phase6_report_status"

@@ -101,10 +101,10 @@ def write_kubeconfig(path, name, server, ca_data, certificate, private_key):
             os.unlink(temporary)
 
 
-def issue_identity(admin_kubeconfig, repository, identity, server, ca_data):
+def issue_identity(admin_kubeconfig, repository, identity, server, ca_data, csr_suffix="phase5"):
     name = identity["name"]
-    csr_name = f"{name}-phase5"
-    with tempfile.TemporaryDirectory(prefix="mokla-phase5-access-") as directory:
+    csr_name = f"{name}-{csr_suffix}"
+    with tempfile.TemporaryDirectory(prefix=f"mokla-{csr_suffix}-access-") as directory:
         key_path = pathlib.Path(directory) / "client.key"
         csr_path = pathlib.Path(directory) / "client.csr"
         subprocess.run(

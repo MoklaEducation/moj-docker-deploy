@@ -3,7 +3,7 @@
   "$id": "https://mokla.example/schemas/platform.schema.json",
   "type": "object",
   "additionalProperties": false,
-  "required": ["environment_name", "target_connection", "host_fqdn", "host_address", "network", "host", "docker", "data_services", "external_platform_services", "backup", "k3s", "cluster_core"],
+  "required": ["environment_name", "target_connection", "host_fqdn", "host_address", "network", "host", "docker", "data_services", "external_platform_services", "backup", "k3s", "cluster_core", "cluster_addons"],
   "properties": {
     "environment_name": {"type": "string", "minLength": 1},
     "target_connection": {
@@ -323,6 +323,49 @@
           }
         },
         "smoke_image": {"type": "string", "pattern": "^[^@\\s]+@sha256:[0-9a-f]{64}$"}
+      }
+    },
+    "cluster_addons": {
+      "type": "object", "additionalProperties": false,
+      "required": ["managed_by", "profile", "identity", "namespaces", "private_access", "capabilities", "certificates"],
+      "properties": {
+        "managed_by": {"const": "mokla-cluster-addons"},
+        "profile": {"const": "private-test"},
+        "identity": {"$ref": "#/$defs/cluster_identity"},
+        "namespaces": {
+          "type": "object", "additionalProperties": false,
+          "required": ["certificates", "node_agents"],
+          "properties": {
+            "certificates": {"const": "cert-manager"},
+            "node_agents": {"const": "observability-agents"}
+          }
+        },
+        "private_access": {
+          "type": "object", "additionalProperties": false,
+          "required": ["mode"],
+          "properties": {"mode": {"const": "port-forward"}}
+        },
+        "capabilities": {
+          "type": "object", "additionalProperties": false,
+          "required": ["certificates", "metrics", "logs", "backups"],
+          "properties": {
+            "certificates": {"const": true},
+            "metrics": {"type": "boolean"},
+            "logs": {"type": "boolean"},
+            "backups": {"const": false}
+          }
+        },
+        "certificates": {
+          "type": "object", "additionalProperties": false,
+          "required": ["issuer_name", "hostname", "duration", "renew_before", "ingress_class"],
+          "properties": {
+            "issuer_name": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
+            "hostname": {"type": "string", "pattern": "^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])$"},
+            "duration": {"type": "string", "pattern": "^[1-9][0-9]*h$"},
+            "renew_before": {"type": "string", "pattern": "^[1-9][0-9]*h$"},
+            "ingress_class": {"const": "traefik"}
+          }
+        }
       }
     }
   },

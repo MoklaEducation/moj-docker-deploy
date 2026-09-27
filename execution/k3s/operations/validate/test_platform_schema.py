@@ -115,6 +115,16 @@ class PlatformSchemaTests(unittest.TestCase):
                 del platform["cluster_core"][field]
                 self.assertTrue(list(VALIDATOR.iter_errors(platform)), field)
 
+    def test_phase_6_cluster_addon_fields_are_required(self):
+        for field in (
+            "managed_by", "profile", "identity", "namespaces", "private_access",
+            "capabilities", "certificates",
+        ):
+            with self.subTest(field=field):
+                platform = copy.deepcopy(PLATFORM)
+                del platform["cluster_addons"][field]
+                self.assertTrue(list(VALIDATOR.iter_errors(platform)), field)
+
     def test_unsafe_phase_2_values_are_rejected(self):
         invalid_values = (
             (("host", "storage_root"), "relative/path"),
@@ -171,6 +181,20 @@ class PlatformSchemaTests(unittest.TestCase):
             (("cluster_core", "storage", "class_name"), "unknown"),
             (("cluster_core", "secret_delivery", "age_recipient"), "not-an-age-recipient"),
             (("cluster_core", "smoke_image"), "busybox:latest"),
+        )
+        for path, value in invalid_values:
+            with self.subTest(path=path):
+                self.assert_invalid(path, value)
+
+    def test_structurally_invalid_phase_6_values_are_rejected(self):
+        invalid_values = (
+            (("cluster_addons", "managed_by"), "another-manager"),
+            (("cluster_addons", "profile"), "production"),
+            (("cluster_addons", "namespaces", "certificates"), "default"),
+            (("cluster_addons", "private_access", "mode"), "public-ingress"),
+            (("cluster_addons", "capabilities", "backups"), True),
+            (("cluster_addons", "certificates", "hostname"), "INVALID_HOST"),
+            (("cluster_addons", "certificates", "duration"), "seven-days"),
         )
         for path, value in invalid_values:
             with self.subTest(path=path):

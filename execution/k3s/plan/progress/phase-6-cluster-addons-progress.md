@@ -1,6 +1,6 @@
 # Phase 6 Cluster Add-ons Progress
 
-Status: test-profile planning decisions accepted; implementation not started
+Status: certificate capability complete; metrics and logs not started
 
 Last updated: 2026-09-27
 
@@ -69,5 +69,57 @@ and confirm the Phase 3 webhook endpoint. The implementation should then proceed
 order: common release tooling, certificates, metrics and alerting, logs and dashboards,
 and integrated test-profile validation.
 
-No add-on resources, credentials, or namespaces have been changed by this planning
-decision.
+## Implemented Foundation
+
+- The public bootstrap accepts `check|apply --through cluster-addons` and gates Phase 6
+  behind current passing Phase 5 evidence.
+- Controller setup installs and validates Helm `v3.18.6` from its checksum-pinned upstream
+  archive.
+- `cluster/addons/releases.yaml` records cert-manager chart `v1.18.2`, chart SHA-256, and
+  immutable digests for controller, webhook, cainjector, startup API check, and ACME
+  solver images.
+- Shared scripts acquire the chart into temporary storage, verify its checksum, render
+  twice, enforce offline image/resource/security policy, detect live drift, apply only
+  changed portions, and write redacted evidence.
+- The test environment schema now controls capability switches, fixed identity,
+  namespaces, private access mode, issuer, hostname, certificate lifetime, renewal
+  window, and ingress class.
+
+## Implemented Certificate Capability
+
+- A `cert-manager` namespace enforces restricted Pod Security, default-deny networking,
+  explicit DNS/API/internal/Traefik flows, a ResourceQuota, and a LimitRange.
+- Cert-manager runs as three single-replica bounded deployments. The rendered release and
+  smoke workload contain five workload images, all pinned by digest.
+- A namespaced self-signed bootstrap issuer creates a private CA. The CA issuer creates a
+  seven-day ECDSA leaf certificate for `phase6.test.mokla.local` with a 24-hour renewal
+  window.
+- A restricted BusyBox HTTP deployment, Service, and Traefik Ingress provide the
+  disposable HTTPS target. Validation checks certificate readiness, chain, SAN, minimum
+  remaining lifetime, and the HTTPS response using the generated CA and `curl --resolve`.
+- The add-on client certificate is stored only in the ignored `.generated` directory with
+  mode `0600`. For this test iteration its group has an explicitly labeled temporary
+  `cluster-admin` binding. Splitting bootstrap CRD/RBAC work from routine reconciliation
+  remains required before production qualification.
+
+## Verified State
+
+- Deterministic rendering passes with 66 objects and SHA-256
+  `6ddaebb9f88691fcaa35e762151ba301c443703419c90cd85b25b0ccae699884`.
+- Cert-manager controller, cainjector, webhook, and the certificate smoke deployment are
+  Available. Both the private CA and leaf Certificate report Ready.
+- Private HTTPS, certificate chain, SAN, and expiry checks pass.
+- A repeat apply reports `drift_before: false`; the Helm revision count remained 2 before
+  and after, proving the unchanged operation did not create a release revision.
+- The cumulative public check through Phase 6 passes and writes redacted evidence to
+  `execution/k3s/.evidence/test/phase-6-cluster-addons.json`.
+
+## Remaining Work
+
+- Implement metrics and alerting, including the Phase 3 webhook route.
+- Implement Alloy/Loki and the dedicated node-agent Pod Security exception.
+- Exercise short-lifetime certificate renewal and add expiry alerting after metrics is
+  available.
+- Replace the temporary add-on `cluster-admin` binding with split least-privilege roles.
+- Implement Kubernetes backup and off-host recovery qualification in the deferred
+  iteration.

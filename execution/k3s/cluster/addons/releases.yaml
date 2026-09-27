@@ -1,0 +1,15 @@
+schema_version: "1"
+releases:
+  certificates:
+    name: cert-manager
+    namespace: cert-manager
+    chart:
+      url: https://charts.jetstack.io/charts/cert-manager-v1.18.2.tgz
+      version: v1.18.2
+      sha256: daddf7af7b1f0eaaa10edd790aefa0bd8c2b07830febf659460d843217f5b3c5
+    images:
+      controller: quay.io/jetstack/cert-manager-controller@sha256:81316365dc0b713eddddfbf9b8907b2939676e6c0e12beec0f9625f202a36d16
+      webhook: quay.io/jetstack/cert-manager-webhook@sha256:9431f0d8b5103b06cc6138564f471ac02c6b2638c2fa399d81e28a01d817ae73
+      cainjector: quay.io/jetstack/cert-manager-cainjector@sha256:af59e01ad9756a1034fbf948330e75702e5d79b3577f323f6a9947707ba262fc
+      startupapicheck: quay.io/jetstack/cert-manager-startupapicheck@sha256:1075e097415167caa584b203292dfb57e46866df0adb76fe769ef5cb0297ccc4
+      acmesolver: quay.io/jetstack/cert-manager-acmesolver@sha256:1c81a771e3e3a210466aa25f5fc05ce5c286e0eb90d96563cc0275aaa50788c2

@@ -192,3 +192,27 @@ cluster_core:
     age_recipient: age1rwwjrh53mxx43xps8glry9uk4aga839wlr85ceftvr0905dgqvxsrgke24
     identity_environment_variable: SOPS_AGE_KEY_FILE
   smoke_image: docker.io/library/busybox:1.36.1@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
+cluster_addons:
+  managed_by: mokla-cluster-addons
+  profile: private-test
+  identity:
+    name: mokla-cluster-addons
+    group: mokla:cluster-addons
+    kubeconfig_output: execution/k3s/environments/test/.generated/cluster-addons.kubeconfig
+    certificate_validity_days: 30
+  namespaces:
+    certificates: cert-manager
+    node_agents: observability-agents
+  private_access:
+    mode: port-forward
+  capabilities:
+    certificates: true
+    metrics: false
+    logs: false
+    backups: false
+  certificates:
+    issuer_name: mokla-test-ca
+    hostname: phase6.test.mokla.local
+    duration: 168h
+    renew_before: 24h
+    ingress_class: traefik

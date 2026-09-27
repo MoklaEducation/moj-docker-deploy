@@ -1,0 +1,73 @@
+crds:
+  enabled: true
+
+global:
+  commonLabels:
+    app.kubernetes.io/managed-by: mokla-cluster-addons
+
+replicaCount: 1
+image:
+  digest: sha256:81316365dc0b713eddddfbf9b8907b2939676e6c0e12beec0f9625f202a36d16
+resources:
+  requests: {cpu: 30m, memory: 64Mi}
+  limits: {cpu: 150m, memory: 160Mi}
+securityContext:
+  runAsNonRoot: true
+  seccompProfile: {type: RuntimeDefault}
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities: {drop: [ALL]}
+  readOnlyRootFilesystem: true
+
+prometheus:
+  enabled: false
+
+webhook:
+  replicaCount: 1
+  image:
+    digest: sha256:9431f0d8b5103b06cc6138564f471ac02c6b2638c2fa399d81e28a01d817ae73
+  resources:
+    requests: {cpu: 20m, memory: 32Mi}
+    limits: {cpu: 100m, memory: 96Mi}
+  securityContext:
+    runAsNonRoot: true
+    seccompProfile: {type: RuntimeDefault}
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    capabilities: {drop: [ALL]}
+    readOnlyRootFilesystem: true
+
+cainjector:
+  enabled: true
+  replicaCount: 1
+  image:
+    digest: sha256:af59e01ad9756a1034fbf948330e75702e5d79b3577f323f6a9947707ba262fc
+  resources:
+    requests: {cpu: 20m, memory: 64Mi}
+    limits: {cpu: 100m, memory: 128Mi}
+  securityContext:
+    runAsNonRoot: true
+    seccompProfile: {type: RuntimeDefault}
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    capabilities: {drop: [ALL]}
+    readOnlyRootFilesystem: true
+
+acmesolver:
+  image:
+    digest: sha256:1c81a771e3e3a210466aa25f5fc05ce5c286e0eb90d96563cc0275aaa50788c2
+
+startupapicheck:
+  enabled: true
+  image:
+    digest: sha256:1075e097415167caa584b203292dfb57e46866df0adb76fe769ef5cb0297ccc4
+  resources:
+    requests: {cpu: 10m, memory: 32Mi}
+    limits: {cpu: 50m, memory: 64Mi}
+  securityContext:
+    runAsNonRoot: true
+    seccompProfile: {type: RuntimeDefault}
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    capabilities: {drop: [ALL]}
+    readOnlyRootFilesystem: true
