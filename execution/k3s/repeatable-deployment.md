@@ -315,6 +315,9 @@ boundaries, interfaces, behavior, and recovery capability.
 Build a project-specific integration layer from maintained upstream components rather
 than creating a new k3s installer or copying an entire homelab distribution.
 
+See [Deployment Automation Strategy](plan/deployment-automation-strategy.md) for the
+comparison of orchestration approaches and the staged Mise plus Python runner plan.
+
 ### Reuse directly
 
 - Use the official [`k3s-io/k3s-ansible`](https://github.com/k3s-io/k3s-ansible)
