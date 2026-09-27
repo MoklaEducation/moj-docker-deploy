@@ -43,6 +43,15 @@ def required_secret_keys(platform):
         keys.update(platform["backup"]["repository_credential_secret_keys"])
     if data_services["provisioning_mode"] == "helper-managed":
         keys.update(("mariadb_root_password", "redis_password"))
+    external = platform.get("external_platform_services", {})
+    if external.get("provisioning_mode") == "helper-managed":
+        object_storage = external["object_storage"]
+        keys.update((
+            object_storage["root_user_secret_key"],
+            object_storage["root_password_secret_key"],
+            object_storage["restic_access_key_secret_key"],
+            object_storage["restic_secret_key_secret_key"],
+        ))
     return keys
 
 

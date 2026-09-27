@@ -8,8 +8,10 @@
     mode: "{{ item.mode }}"
   loop:
     - {path: "{{ host.config_root }}/data-services", mode: "0750"}
+    - {path: "{{ external_platform_services_config_root }}", mode: "0750"}
     - {path: "{{ host.config_root }}/secrets", mode: "0700"}
     - {path: "{{ data_services_secret_root }}", mode: "0700"}
+    - {path: "{{ external_platform_services_secret_root }}", mode: "0710"}
   when:
     - not ansible_check_mode
 
@@ -57,6 +59,15 @@
     label: "{{ item.path }}"
   when: not ansible_check_mode
 
+- name: Create MinIO primary data directory
+  ansible.builtin.file:
+    path: "{{ external_platform_services.object_storage.data_path }}"
+    state: directory
+    owner: "{{ external_platform_services.object_storage.runtime_uid }}"
+    group: "{{ external_platform_services.object_storage.runtime_gid }}"
+    mode: "0750"
+  when: not ansible_check_mode
+
 - name: Mark Phase 3-owned primary data directories
   ansible.builtin.copy:
     content: "managed-by=mokla-phase-3\nenvironment={{ environment_name }}\n"
@@ -68,4 +79,5 @@
   loop:
     - "{{ data_services.mariadb.data_path }}"
     - "{{ data_services.redis.data_path }}"
+    - "{{ external_platform_services.object_storage.data_path }}"
   when: not ansible_check_mode

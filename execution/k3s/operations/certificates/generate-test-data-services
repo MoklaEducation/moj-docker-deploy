@@ -120,10 +120,18 @@ if [[ "$update_sops" == true ]]; then
     openssl rand -base64 36 >"$secret_work/mariadb-password"
     openssl rand -base64 36 >"$secret_work/redis-password"
     openssl rand -base64 36 >"$secret_work/restic-password"
+    printf 'moklaroot%s\n' "$(openssl rand -hex 4)" >"$secret_work/minio-root-user"
+    openssl rand -base64 36 | tr -d '\n' >"$secret_work/minio-root-password"
+    printf 'MOKLARESTIC%s\n' "$(openssl rand -hex 5 | tr '[:lower:]' '[:upper:]')" >"$secret_work/minio-restic-access-key"
+    openssl rand -base64 36 | tr -d '\n' >"$secret_work/minio-restic-secret-key"
     jq -n \
       --rawfile mariadb "$secret_work/mariadb-password" \
       --rawfile redis "$secret_work/redis-password" \
       --rawfile restic "$secret_work/restic-password" \
+      --rawfile minio_root_user "$secret_work/minio-root-user" \
+      --rawfile minio_root_password "$secret_work/minio-root-password" \
+      --rawfile minio_restic_access_key "$secret_work/minio-restic-access-key" \
+      --rawfile minio_restic_secret_key "$secret_work/minio-restic-secret-key" \
       --rawfile certificate "$certificate_work/server.crt" \
       --rawfile private_key "$certificate_work/server.key" \
       --rawfile ca_certificate "$certificate_work/ca.crt" \
@@ -131,6 +139,8 @@ if [[ "$update_sops" == true ]]; then
       --arg private_key_key "$private_key_key" \
       --arg ca_certificate_key "$ca_certificate_key" \
       '{mariadb_root_password: $mariadb, redis_password: $redis, restic_password: $restic,
+        minio_root_user: $minio_root_user, minio_root_password: $minio_root_password,
+        minio_restic_access_key: $minio_restic_access_key, minio_restic_secret_key: $minio_restic_secret_key,
         k3s_token_policy: "generate_during_phase_4",
         ($certificate_key): $certificate, ($private_key_key): $private_key,
         ($ca_certificate_key): $ca_certificate}' >"$secret_work/plain.json"

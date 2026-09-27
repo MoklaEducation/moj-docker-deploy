@@ -50,6 +50,21 @@ class FakeRedis:
         return None
 
 
+class FakeResponse:
+    def __init__(self, status=200, payload=None):
+        self.status = status
+        self.payload = payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return None
+
+    def read(self):
+        return json.dumps(self.payload).encode("utf-8") if self.payload is not None else b""
+
+
 class DataServicesRuntimeTests(unittest.TestCase):
     def setUp(self):
         self.platform = {
@@ -101,6 +116,30 @@ class DataServicesRuntimeTests(unittest.TestCase):
         self.assertNotIn("ssl", redis_client.call_args.kwargs)
         self.assertEqual("maria-secret", mariadb_connect.call_args.kwargs["password"])
         self.assertEqual("redis-secret", redis_client.call_args.kwargs["password"])
+
+    def test_external_service_read_only_checks(self):
+        self.platform["external_platform_services"] = {
+            "profile": "co-located-development",
+            "bind_address": "10.20.30.40",
+            "object_storage": {
+                "api_port": 9000,
+                "bucket": "test-backups",
+                "restic_access_key_secret_key": "minio_access",
+                "restic_secret_key_secret_key": "minio_secret",
+            },
+            "alert_receiver": {"endpoint": "http://10.20.30.40:9080/alerts", "data_policy": "disposable"},
+        }
+        self.values.update({"restic_password": "restic", "minio_access": "access", "minio_secret": "secret"})
+        restic_result = mock.Mock(returncode=0, stdout="[]")
+        minio_result = mock.Mock(returncode=1, stdout="")
+        with mock.patch.object(MODULE, "tls_context", return_value=object()), \
+            mock.patch.object(MODULE.pymysql, "connect", return_value=FakeConnection()), \
+                mock.patch.object(MODULE.redis, "Redis", FakeRedis), \
+            mock.patch.object(MODULE, "minio_command", return_value=minio_result), \
+                mock.patch.object(MODULE, "run_restic", return_value=restic_result), \
+                mock.patch.object(MODULE.urllib.request, "urlopen", return_value=FakeResponse(200, {"status": "ok"})):
+            checks = MODULE.validate_runtime(self.platform, self.values, "check")
+        self.assertEqual(["pass"] * 5, [check["status"] for check in checks])
 
 
 if __name__ == "__main__":

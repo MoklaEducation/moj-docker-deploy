@@ -2,7 +2,7 @@
 - name: Read data-service container health
   ansible.builtin.command:
     argv: [docker, inspect, --format, "{{ '{{.State.Health.Status}}' }}", "{{ data_services_project_name }}-{{ item }}-1"]
-  loop: [mariadb, redis]
+  loop: [mariadb, redis, minio, alert-receiver]
   register: data_services_health
   retries: 30
   delay: 4
@@ -27,6 +27,12 @@
       - data_services_sockets.stdout is search(data_services.bind_address ~ ':' ~ (data_services.redis.port | string))
       - not data_services_sockets.stdout is search('0.0.0.0:' ~ (data_services.mariadb.port | string))
       - not data_services_sockets.stdout is search('0.0.0.0:' ~ (data_services.redis.port | string))
+      - data_services_sockets.stdout is search(external_platform_services.bind_address ~ ':' ~ (external_platform_services.object_storage.api_port | string))
+      - data_services_sockets.stdout is search(external_platform_services.bind_address ~ ':' ~ (external_platform_services.object_storage.console_port | string))
+      - data_services_sockets.stdout is search(external_platform_services.bind_address ~ ':' ~ (external_platform_services.alert_receiver.port | string))
+      - not data_services_sockets.stdout is search('0.0.0.0:' ~ (external_platform_services.object_storage.api_port | string))
+      - not data_services_sockets.stdout is search('0.0.0.0:' ~ (external_platform_services.object_storage.console_port | string))
+      - not data_services_sockets.stdout is search('0.0.0.0:' ~ (external_platform_services.alert_receiver.port | string))
   when: not ansible_check_mode
 
 - name: Read effective UFW data-service rules
@@ -41,7 +47,7 @@
     that:
       - data_services_ufw.stdout is search(item)
     fail_msg: "The effective UFW state is missing a declared Phase 3 address, CIDR, or port."
-  loop: "{{ [data_services.bind_address, data_services.mariadb.port | string, data_services.redis.port | string] + data_services.allowed_client_cidrs }}"
+  loop: "{{ [data_services.bind_address, data_services.mariadb.port | string, data_services.redis.port | string, external_platform_services.bind_address, external_platform_services.object_storage.api_port | string, external_platform_services.object_storage.console_port | string, external_platform_services.alert_receiver.port | string] + data_services.allowed_client_cidrs + external_platform_services.allowed_client_cidrs }}"
   when: not ansible_check_mode
 
 - name: Write allow-listed Phase 3 facts for controller evidence
@@ -58,19 +64,29 @@
       images:
         mariadb: "{{ data_services.mariadb.image }}"
         redis: "{{ data_services.redis.image }}"
+        minio: "{{ external_platform_services.object_storage.image }}"
+        alert_receiver: "{{ external_platform_services.alert_receiver.image }}"
       configuration_hashes:
         compose: "{{ data_services_rendered_compose | hash('sha256') }}"
         mariadb: "{{ data_services_rendered_mariadb | hash('sha256') }}"
         redis: "{{ data_services_rendered_redis | hash('sha256') }}"
         systemd: "{{ data_services_rendered_unit | hash('sha256') }}"
+        alert_receiver: "{{ data_services_rendered_webhook | hash('sha256') }}"
+        minio_policy: "{{ data_services_rendered_minio_policy | hash('sha256') }}"
       network:
         bind_address: "{{ data_services.bind_address }}"
         mariadb_port: "{{ data_services.mariadb.port }}"
         redis_port: "{{ data_services.redis.port }}"
         allowed_client_cidrs: "{{ data_services.allowed_client_cidrs }}"
+        minio_api_port: "{{ external_platform_services.object_storage.api_port }}"
+        minio_console_port: "{{ external_platform_services.object_storage.console_port }}"
+        alert_receiver_port: "{{ external_platform_services.alert_receiver.port }}"
+        external_allowed_client_cidrs: "{{ external_platform_services.allowed_client_cidrs }}"
       services:
         mariadb: "{{ 'healthy' if not ansible_check_mode else 'not_checked' }}"
         redis: "{{ 'healthy' if not ansible_check_mode else 'not_checked' }}"
+        minio: "{{ 'healthy' if not ansible_check_mode else 'not_checked' }}"
+        alert_receiver: "{{ 'healthy' if not ansible_check_mode else 'not_checked' }}"
       checks:
         - id: data_services.phase2.converged
           status: pass
@@ -82,15 +98,15 @@
           remediation: ""
         - id: data_services.render.valid
           status: pass
-          evidence: Compose, MariaDB, Redis, and systemd definitions passed offline validation
+          evidence: Compose, MariaDB, Redis, MinIO, alert receiver, policy, and systemd definitions passed offline validation
           remediation: ""
         - id: data_services.runtime.healthy
           status: "{{ 'pass' if not ansible_check_mode else 'not_applicable' }}"
-          evidence: "{{ 'Both configured containers reported healthy' if not ansible_check_mode else 'Runtime health is not probed in check mode' }}"
+          evidence: "{{ 'All four configured containers reported healthy' if not ansible_check_mode else 'Runtime health is not probed in check mode' }}"
           remediation: ""
         - id: data_services.network.private_listeners
           status: "{{ 'pass' if not ansible_check_mode else 'not_applicable' }}"
-          evidence: "{{ 'MariaDB and Redis listen only on the configured private address' if not ansible_check_mode else 'Listener state is not probed in check mode' }}"
+          evidence: "{{ 'MariaDB, Redis, MinIO, and alert receiver listen only on configured private addresses' if not ansible_check_mode else 'Listener state is not probed in check mode' }}"
           remediation: ""
         - id: data_services.tls.enforced
           status: "{{ 'not_applicable' if data_services.delivery_profile == 'development' else 'pass' }}"

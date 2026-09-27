@@ -25,6 +25,8 @@ def valid_platform():
     platform["backup"]["enabled"] = True
     platform["host_address"] = "10.20.30.40"
     platform["data_services"]["bind_address"] = "10.20.30.40"
+    platform["external_platform_services"]["bind_address"] = "10.20.30.40"
+    platform["external_platform_services"]["alert_receiver"]["endpoint"] = "http://10.20.30.40:9080/alerts"
     platform["data_services"]["tls"]["renewal_owner"] = "platform-operator"
     platform["data_services"]["mariadb"]["image"] = "docker.io/library/mariadb:11.8.3@sha256:" + "a" * 64
     platform["data_services"]["redis"]["image"] = "docker.io/library/redis:8.2.1@sha256:" + "b" * 64
@@ -141,6 +143,25 @@ class DataServicesConfigTests(unittest.TestCase):
         check_ids = {check_id for check_id, _ in MODULE.validate_configuration(platform)}
         self.assertIn("data_services.redis.authentication", check_ids)
         self.assertIn("data_services.redis.memory_headroom", check_ids)
+
+    def test_current_external_platform_services_are_valid(self):
+        self.assertEqual([], MODULE.validate_configuration(PLATFORM))
+
+    def test_external_services_reject_unpinned_images_and_endpoint_drift(self):
+        platform = copy.deepcopy(PLATFORM)
+        platform["external_platform_services"]["object_storage"]["image"] = "minio:latest"
+        platform["external_platform_services"]["alert_receiver"]["endpoint"] = "http://192.168.1.152:9080/alerts"
+        check_ids = {check_id for check_id, _ in MODULE.validate_configuration(platform)}
+        self.assertIn("external_platform_services.object_storage.image.pinned", check_ids)
+        self.assertIn("external_platform_services.alert_receiver.endpoint", check_ids)
+
+    def test_external_services_reject_duplicate_ports_and_secret_keys(self):
+        platform = copy.deepcopy(PLATFORM)
+        platform["external_platform_services"]["object_storage"]["api_port"] = platform["data_services"]["redis"]["port"]
+        platform["external_platform_services"]["object_storage"]["restic_access_key_secret_key"] = "minio_root_user"
+        check_ids = {check_id for check_id, _ in MODULE.validate_configuration(platform)}
+        self.assertIn("external_platform_services.ports.unreserved", check_ids)
+        self.assertIn("external_platform_services.object_storage.secret_keys", check_ids)
 
 
 if __name__ == "__main__":

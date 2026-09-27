@@ -10,7 +10,7 @@ RemainAfterExit=yes
 WorkingDirectory={{ host.config_root }}/data-services
 ExecStart=/usr/bin/docker compose --project-name {{ data_services_project_name }} --file {{ data_services_compose_path }} up --detach --remove-orphans --wait
 ExecStop=/usr/bin/docker compose --project-name {{ data_services_project_name }} --file {{ data_services_compose_path }} stop
-TimeoutStartSec={{ [data_services.mariadb.health_timeout_seconds, data_services.redis.health_timeout_seconds] | max }}
+TimeoutStartSec={{ [data_services.mariadb.health_timeout_seconds, data_services.redis.health_timeout_seconds, external_platform_services.object_storage.health_timeout_seconds, external_platform_services.alert_receiver.health_timeout_seconds] | max }}
 TimeoutStopSec=120
 
 [Install]

@@ -3,7 +3,7 @@
   "$id": "https://mokla.example/schemas/platform.schema.json",
   "type": "object",
   "additionalProperties": false,
-  "required": ["environment_name", "target_connection", "host_fqdn", "host_address", "network", "host", "docker", "data_services", "backup", "k3s", "cluster_core"],
+  "required": ["environment_name", "target_connection", "host_fqdn", "host_address", "network", "host", "docker", "data_services", "external_platform_services", "backup", "k3s", "cluster_core"],
   "properties": {
     "environment_name": {"type": "string", "minLength": 1},
     "target_connection": {
@@ -126,6 +126,58 @@
             "config_path": {"$ref": "#/$defs/absolute_path"},
             "maxmemory": {"type": "integer", "minimum": 1},
             "maxmemory_policy": {"type": "string", "enum": ["noeviction", "allkeys-lru", "allkeys-lfu", "allkeys-random", "volatile-lru", "volatile-lfu", "volatile-random", "volatile-ttl"]},
+            "health_timeout_seconds": {"type": "integer", "minimum": 1},
+            "memory_limit": {"$ref": "#/$defs/memory_size"},
+            "cpus": {"type": "number", "exclusiveMinimum": 0}
+          }
+        }
+      }
+    },
+    "external_platform_services": {
+      "type": "object", "additionalProperties": false,
+      "required": ["profile", "provisioning_mode", "bind_address", "allowed_client_cidrs", "object_storage", "alert_receiver"],
+      "properties": {
+        "profile": {"type": "string", "enum": ["co-located-development", "isolated-test", "recovery-qualified"]},
+        "provisioning_mode": {"type": "string", "enum": ["helper-managed", "external"]},
+        "bind_address": {"type": "string", "format": "ipv4"},
+        "allowed_client_cidrs": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
+        "object_storage": {
+          "type": "object", "additionalProperties": false,
+          "required": ["provider", "distribution_status", "image", "compatibility_rationale", "image_scan", "api_port", "console_port", "runtime_uid", "runtime_gid", "bucket", "data_path", "root_user_secret_key", "root_password_secret_key", "restic_access_key_secret_key", "restic_secret_key_secret_key", "health_timeout_seconds", "memory_limit", "cpus"],
+          "properties": {
+            "provider": {"const": "minio"},
+            "distribution_status": {"const": "frozen-legacy-test-only"},
+            "image": {"type": "string", "minLength": 1},
+            "compatibility_rationale": {"type": "string", "minLength": 1},
+            "image_scan": {"$ref": "#/$defs/image_scan"},
+            "api_port": {"type": "integer", "minimum": 1, "maximum": 65535},
+            "console_port": {"type": "integer", "minimum": 1, "maximum": 65535},
+            "runtime_uid": {"type": "integer", "minimum": 1},
+            "runtime_gid": {"type": "integer", "minimum": 0},
+            "bucket": {"type": "string", "minLength": 3, "maxLength": 63, "pattern": "^[a-z0-9][a-z0-9.-]*[a-z0-9]$"},
+            "data_path": {"$ref": "#/$defs/absolute_path"},
+            "root_user_secret_key": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+            "root_password_secret_key": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+            "restic_access_key_secret_key": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+            "restic_secret_key_secret_key": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+            "health_timeout_seconds": {"type": "integer", "minimum": 1},
+            "memory_limit": {"$ref": "#/$defs/memory_size"},
+            "cpus": {"type": "number", "exclusiveMinimum": 0}
+          }
+        },
+        "alert_receiver": {
+          "type": "object", "additionalProperties": false,
+          "required": ["image", "compatibility_rationale", "image_scan", "port", "runtime_uid", "runtime_gid", "endpoint", "data_policy", "max_events", "health_timeout_seconds", "memory_limit", "cpus"],
+          "properties": {
+            "image": {"type": "string", "minLength": 1},
+            "compatibility_rationale": {"type": "string", "minLength": 1},
+            "image_scan": {"$ref": "#/$defs/image_scan"},
+            "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+            "runtime_uid": {"type": "integer", "minimum": 1},
+            "runtime_gid": {"type": "integer", "minimum": 1},
+            "endpoint": {"type": "string", "pattern": "^http://[^/?#]+:[0-9]+/alerts$"},
+            "data_policy": {"const": "disposable"},
+            "max_events": {"type": "integer", "minimum": 1, "maximum": 1000},
             "health_timeout_seconds": {"type": "integer", "minimum": 1},
             "memory_limit": {"$ref": "#/$defs/memory_size"},
             "cpus": {"type": "number", "exclusiveMinimum": 0}

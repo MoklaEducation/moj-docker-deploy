@@ -279,6 +279,15 @@ least-privilege probes, systemd supervision, off-host backup and restore rehears
 image-policy remediation, and allowed/denied external network qualification. None of
 these deferred controls is implied by development-profile completion.
 
+The co-located external platform services extension is now implemented through the same
+Phase 3 helper. See
+[phase-3-external-platform-services-progress.md](phase-3-external-platform-services-progress.md)
+for the authoritative test endpoint table, SOPS credential-reference names, access
+boundaries, and MinIO, alert receiver, and restic qualification evidence. Actual
+credential values remain only in the ignored encrypted environment document and are
+never copied into progress or evidence files. Dedicated-VM placement and
+physical off-host recovery remain deferred.
+
 ## Update Log
 
 | Date | Change | Validation |

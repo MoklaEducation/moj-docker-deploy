@@ -63,6 +63,21 @@ class DataServicesReportTests(unittest.TestCase):
                 self.assertEqual(1, MODULE.main())
             self.assertEqual("fail", json.loads(report.read_text(encoding="utf-8"))["overall_status"])
 
+    def test_check_retains_last_external_write_qualification(self):
+        qualification = {"generated_at": "earlier", "checks": [{"id": "external_platform_services.runtime.minio", "status": "pass"}], "status": "pass"}
+        existing = {"external_platform_services_qualification": qualification}
+        read_only_checks = [{"id": "external_platform_services.runtime.minio", "status": "pass"}]
+        self.assertEqual(qualification, MODULE.external_qualification("check", read_only_checks, existing, "now"))
+
+    def test_apply_records_external_write_qualification(self):
+        checks = [
+            {"id": "external_platform_services.runtime.minio", "status": "pass"},
+            {"id": "external_platform_services.runtime.alert_receiver", "status": "pass"},
+        ]
+        qualification = MODULE.external_qualification("apply", checks, {}, "now")
+        self.assertEqual("pass", qualification["status"])
+        self.assertEqual(checks, qualification["checks"])
+
 
 if __name__ == "__main__":
     unittest.main()

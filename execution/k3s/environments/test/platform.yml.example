@@ -84,6 +84,43 @@ data_services:
     health_timeout_seconds: 60
     memory_limit: 384M
     cpus: 0.5
+external_platform_services:
+  profile: co-located-development
+  provisioning_mode: helper-managed
+  bind_address: 192.168.1.151
+  allowed_client_cidrs: [10.42.0.0/16, 192.168.1.0/24]
+  object_storage:
+    provider: minio
+    distribution_status: frozen-legacy-test-only
+    image: docker.io/bitnamilegacy/minio:2025.7.23-debian-12-r3@sha256:fdb6ff48c314e024fdd71960cb94d6c9b65a8bc38338990613da48090b8ff3ee
+    compatibility_rationale: Frozen Bitnami MinIO 2025.7.23 image accepted only for disposable S3-compatible workflow testing because the official image registry is not anonymously accessible
+    image_scan: {scanner: registry-metadata-review, scanned_at: "2026-09-27", findings: "Vulnerability scan pending; frozen legacy distribution accepted only for disposable test", approved_by: test-environment-owner}
+    api_port: 9000
+    console_port: 9001
+    runtime_uid: 1001
+    runtime_gid: 0
+    bucket: mokla-test-backups
+    data_path: /srv/mokla/platform-services/minio/data
+    root_user_secret_key: minio_root_user
+    root_password_secret_key: minio_root_password
+    restic_access_key_secret_key: minio_restic_access_key
+    restic_secret_key_secret_key: minio_restic_secret_key
+    health_timeout_seconds: 120
+    memory_limit: 768M
+    cpus: 1.0
+  alert_receiver:
+    image: docker.io/library/python:3.13.7-alpine3.22@sha256:527c28b29498575b851ad88e7522ac7201bbd9e920d2c11b00ff2b39b315f5f8
+    compatibility_rationale: Python standard-library HTTP receiver runs as nobody with no added packages for disposable alert delivery tests
+    image_scan: {scanner: registry-metadata-review, scanned_at: "2026-09-27", findings: "Vulnerability scan pending; official minimal runtime accepted only for disposable test receiver", approved_by: test-environment-owner}
+    port: 9080
+    runtime_uid: 65534
+    runtime_gid: 65534
+    endpoint: http://192.168.1.151:9080/alerts
+    data_policy: disposable
+    max_events: 100
+    health_timeout_seconds: 60
+    memory_limit: 128M
+    cpus: 0.25
 backup:
   enabled: false
   repository_mode: local-development

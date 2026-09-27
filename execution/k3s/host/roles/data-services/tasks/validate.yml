@@ -50,6 +50,7 @@
   loop:
     - "{{ data_services.mariadb.data_path }}"
     - "{{ data_services.redis.data_path }}"
+    - "{{ external_platform_services.object_storage.data_path }}"
   register: data_services_primary_paths
 
 - name: Probe primary data directory contents
@@ -68,6 +69,7 @@
   loop:
     - "{{ data_services.mariadb.data_path }}"
     - "{{ data_services.redis.data_path }}"
+    - "{{ external_platform_services.object_storage.data_path }}"
   register: data_services_primary_markers
 
 - name: Refuse unsafe Phase 3 adoption
@@ -79,8 +81,10 @@
       - "'mysql-server' not in ansible_facts.packages"
       - "'redis-server' not in ansible_facts.packages"
       - data_services_native_units.stdout | trim == ''
-      - data_services_existing_containers.stdout_lines | difference([data_services_project_name ~ '-mariadb-1', data_services_project_name ~ '-redis-1']) | length == 0
+      - data_services_existing_containers.stdout_lines | difference([data_services_project_name ~ '-mariadb-1', data_services_project_name ~ '-redis-1', data_services_project_name ~ '-minio-1', data_services_project_name ~ '-alert-receiver-1']) | length == 0
       - data_services_primary_paths.results | selectattr('stat.exists') | rejectattr('stat.isdir') | list | length == 0
       - data_services_primary_paths.results | selectattr('stat.exists') | selectattr('stat.islnk') | list | length == 0
-      - data_services_primary_contents.results | default([]) | selectattr('stdout', 'defined') | selectattr('stdout') | list | length == 0 or data_services_primary_markers.results | selectattr('stat.exists') | list | length == 2
+      - not data_services_primary_paths.results[0].stat.exists or data_services_primary_contents.results[0].stdout | default('') | trim == '' or data_services_primary_markers.results[0].stat.exists
+      - not data_services_primary_paths.results[1].stat.exists or data_services_primary_contents.results[1].stdout | default('') | trim == '' or data_services_primary_markers.results[1].stat.exists
+      - not data_services_primary_paths.results[2].stat.exists or data_services_primary_contents.results[2].stdout | default('') | trim == '' or data_services_primary_markers.results[2].stat.exists
     fail_msg: The private bind address must be assigned to this host, and existing native services, unmanaged containers, pending reboot, or unmarked data require explicit operator disposition before Phase 3.

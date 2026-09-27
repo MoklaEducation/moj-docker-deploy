@@ -25,8 +25,11 @@ class DataServicesSecretsTests(unittest.TestCase):
     def test_complete_non_placeholder_contract_passes(self):
         self.assertEqual([], MODULE.validate_values(PLATFORM, expected_values(PLATFORM)))
 
-    def test_development_profile_requires_only_service_passwords(self):
-        self.assertEqual({"mariadb_root_password", "redis_password"}, MODULE.required_secret_keys(PLATFORM))
+    def test_development_profile_requires_managed_service_credentials(self):
+        self.assertEqual({
+            "mariadb_root_password", "redis_password", "minio_root_user",
+            "minio_root_password", "minio_restic_access_key", "minio_restic_secret_key",
+        }, MODULE.required_secret_keys(PLATFORM))
 
     def test_provider_specific_keys_are_required(self):
         platform = copy.deepcopy(PLATFORM)
@@ -40,6 +43,8 @@ class DataServicesSecretsTests(unittest.TestCase):
     def test_external_mode_uses_probe_credentials_without_bootstrap_credentials(self):
         platform = copy.deepcopy(PLATFORM)
         platform["data_services"]["provisioning_mode"] = "external"
+        platform["external_platform_services"]["provisioning_mode"] = "external"
+        platform["external_platform_services"]["profile"] = "isolated-test"
         platform["data_services"]["mariadb"]["probe_password_secret_key"] = "mariadb_probe_password"
         platform["data_services"]["redis"]["probe_password_secret_key"] = "redis_probe_password"
         keys = MODULE.required_secret_keys(platform)

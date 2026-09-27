@@ -57,3 +57,67 @@ services:
       options:
         max-size: {{ docker.log_max_size }}
         max-file: "{{ docker.log_max_files }}"
+  minio:
+    image: {{ external_platform_services.object_storage.image }}
+    user: "{{ external_platform_services.object_storage.runtime_uid }}:{{ external_platform_services.object_storage.runtime_gid }}"
+    network_mode: host
+    restart: unless-stopped
+    init: true
+    read_only: true
+    entrypoint: [/bin/bash, -ec]
+    command:
+      - |
+        export HOME=/tmp
+        export MINIO_ROOT_USER="$$(cat /run/secrets/minio-root-user)"
+        export MINIO_ROOT_PASSWORD="$$(cat /run/secrets/minio-root-password)"
+        exec minio server --address {{ external_platform_services.bind_address }}:{{ external_platform_services.object_storage.api_port }} --console-address {{ external_platform_services.bind_address }}:{{ external_platform_services.object_storage.console_port }} /data
+    volumes:
+      - {{ external_platform_services.object_storage.data_path }}:/data
+      - {{ external_platform_services_secret_root }}:/run/secrets:ro
+      - {{ external_platform_services_config_root }}/minio-restic-policy.json:/opt/mokla/minio-restic-policy.json:ro
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    healthcheck:
+      test: [CMD, curl, --fail, --silent, "http://{{ external_platform_services.bind_address }}:{{ external_platform_services.object_storage.api_port }}/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    mem_limit: {{ external_platform_services.object_storage.memory_limit }}
+    cpus: {{ external_platform_services.object_storage.cpus }}
+    logging:
+      driver: json-file
+      options:
+        max-size: {{ docker.log_max_size }}
+        max-file: "{{ docker.log_max_files }}"
+  alert-receiver:
+    image: {{ external_platform_services.alert_receiver.image }}
+    user: "{{ external_platform_services.alert_receiver.runtime_uid }}:{{ external_platform_services.alert_receiver.runtime_gid }}"
+    network_mode: host
+    restart: unless-stopped
+    init: true
+    read_only: true
+    command: [python3, /opt/mokla/alert-receiver.py]
+    volumes:
+      - {{ external_platform_services_config_root }}/alert-receiver.py:/opt/mokla/alert-receiver.py:ro
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    healthcheck:
+      test: [CMD, python3, -c, "import urllib.request; urllib.request.urlopen('http://{{ external_platform_services.bind_address }}:{{ external_platform_services.alert_receiver.port }}/health', timeout=3).read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+    mem_limit: {{ external_platform_services.alert_receiver.memory_limit }}
+    cpus: {{ external_platform_services.alert_receiver.cpus }}
+    logging:
+      driver: json-file
+      options:
+        max-size: {{ docker.log_max_size }}
+        max-file: "{{ docker.log_max_files }}"

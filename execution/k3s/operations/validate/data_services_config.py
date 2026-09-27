@@ -97,6 +97,7 @@ def validate_configuration(platform):
     mariadb = data_services["mariadb"]
     redis = data_services["redis"]
     backup = platform["backup"]
+    external = platform["external_platform_services"]
     host = platform["host"]
 
     try:
@@ -161,6 +162,45 @@ def validate_configuration(platform):
     if redis["maxmemory"] >= memory_bytes(redis["memory_limit"]):
         errors.append(("data_services.redis.memory_headroom", "Redis maxmemory must be below its container memory limit"))
 
+    object_storage = external["object_storage"]
+    alert_receiver = external["alert_receiver"]
+    try:
+        external_address = ipaddress.ip_address(external["bind_address"])
+    except ValueError:
+        errors.append(("external_platform_services.bind_address.private", "bind address is not valid IPv4"))
+    else:
+        if external_address.version != 4 or not external_address.is_private or external_address.is_loopback or external_address.is_unspecified:
+            errors.append(("external_platform_services.bind_address.private", "bind address must be a specific non-loopback private IPv4 address"))
+        if external["provisioning_mode"] == "helper-managed" and str(external_address) != platform["host_address"]:
+            errors.append(("external_platform_services.bind_address.host_match", "helper-managed services must bind to the configured host address"))
+    if external["profile"] == "co-located-development" and external["provisioning_mode"] != "helper-managed":
+        errors.append(("external_platform_services.profile.mode", "co-located development requires helper-managed provisioning"))
+    for value in external["allowed_client_cidrs"]:
+        try:
+            network = ipaddress.ip_network(value, strict=True)
+        except ValueError:
+            errors.append(("external_platform_services.allowed_client_cidrs.private", f"invalid client CIDR: {value}"))
+            continue
+        if network.version != 4 or network.prefixlen == 0 or not network.is_private:
+            errors.append(("external_platform_services.allowed_client_cidrs.private", f"client CIDR must be restricted private IPv4: {value}"))
+    validate_image("external_platform_services.object_storage.image.pinned", object_storage["image"], errors)
+    validate_image("external_platform_services.alert_receiver.image.pinned", alert_receiver["image"], errors)
+    ports = {
+        mariadb["port"], redis["port"], object_storage["api_port"],
+        object_storage["console_port"], alert_receiver["port"],
+    }
+    if len(ports) != 5 or ports & reserved_ports:
+        errors.append(("external_platform_services.ports.unreserved", "service ports must be unique and must not conflict with host platform ports"))
+    parsed_endpoint = urllib.parse.urlsplit(alert_receiver["endpoint"])
+    if parsed_endpoint.scheme != "http" or parsed_endpoint.hostname != external["bind_address"] or parsed_endpoint.port != alert_receiver["port"] or parsed_endpoint.path != "/alerts" or parsed_endpoint.query or parsed_endpoint.fragment or parsed_endpoint.username:
+        errors.append(("external_platform_services.alert_receiver.endpoint", "test receiver endpoint must be the declared private HTTP address, port, and /alerts path without credentials"))
+    secret_keys = {
+        object_storage["root_user_secret_key"], object_storage["root_password_secret_key"],
+        object_storage["restic_access_key_secret_key"], object_storage["restic_secret_key_secret_key"],
+    }
+    if len(secret_keys) != 4 or any(is_placeholder(value) for value in secret_keys):
+        errors.append(("external_platform_services.object_storage.secret_keys", "MinIO secret key references must be distinct and non-placeholder"))
+
     storage_root = pathlib.PurePosixPath(host["storage_root"])
     config_root = pathlib.PurePosixPath(host["config_root"])
     expected_paths = {
@@ -169,6 +209,7 @@ def validate_configuration(platform):
         "data_services.redis.data_path": storage_root / "data-services/redis/data",
         "data_services.redis.config_path": config_root / "data-services/redis",
         "backup.staging_path": storage_root / "backup-staging",
+        "external_platform_services.object_storage.data_path": storage_root / "platform-services/minio/data",
     }
     actual_paths = {
         "data_services.mariadb.data_path": pathlib.PurePosixPath(mariadb["data_path"]),
@@ -176,6 +217,7 @@ def validate_configuration(platform):
         "data_services.redis.data_path": pathlib.PurePosixPath(redis["data_path"]),
         "data_services.redis.config_path": pathlib.PurePosixPath(redis["config_path"]),
         "backup.staging_path": pathlib.PurePosixPath(backup["staging_path"]),
+        "external_platform_services.object_storage.data_path": pathlib.PurePosixPath(object_storage["data_path"]),
     }
     for check_id, expected in expected_paths.items():
         if actual_paths[check_id] != expected:

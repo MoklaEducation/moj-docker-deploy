@@ -73,6 +73,13 @@ class PlatformSchemaTests(unittest.TestCase):
                     del target[field]
                     self.assertTrue(list(VALIDATOR.iter_errors(platform)), field)
 
+    def test_phase_3_external_platform_service_fields_are_required(self):
+        for field in ("profile", "provisioning_mode", "bind_address", "allowed_client_cidrs", "object_storage", "alert_receiver"):
+            with self.subTest(field=field):
+                platform = copy.deepcopy(PLATFORM)
+                del platform["external_platform_services"][field]
+                self.assertTrue(list(VALIDATOR.iter_errors(platform)), field)
+
     def test_phase_3_backup_fields_are_required(self):
         for field in (
             "enabled", "repository_mode", "local_repository_risk_accepted", "restic_repository",

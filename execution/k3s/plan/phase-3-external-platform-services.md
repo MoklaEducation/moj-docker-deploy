@@ -1,6 +1,6 @@
 # Phase 3 Extension Plan: External Platform Services
 
-Status: requirements defined; implementation not started
+Status: co-located development profile implemented; isolated and recovery profiles deferred
 
 ## Mission
 

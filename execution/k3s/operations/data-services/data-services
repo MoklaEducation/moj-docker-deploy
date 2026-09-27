@@ -14,8 +14,8 @@ Usage:
   data-services setup --environment NAME --provision-host-services
   data-services encrypt-secrets --environment NAME --from PATH [--remove-source]
 
-check            Validate configuration, encrypted secrets, and live MariaDB/Redis
-                 TLS/authentication contracts without provisioning services.
+check            Validate configuration, encrypted secrets, and live MariaDB, Redis,
+                 MinIO, and alert-receiver contracts without provisioning services.
 setup            Explicitly provision helper-managed host services using Ansible,
                  then run the same live checks. Refuses external provisioning mode.
 encrypt-secrets  Encrypt a caller-owned temporary YAML file with the environment's age

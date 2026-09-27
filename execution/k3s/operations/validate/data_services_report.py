@@ -54,6 +54,13 @@ def assert_redacted(report):
         raise ValueError("refusing to write secret-bearing Phase 3 evidence")
 
 
+def external_qualification(mode, runtime_checks, existing, generated_at):
+    checks = [check for check in runtime_checks if check.get("id", "").startswith("external_platform_services.runtime.")]
+    if mode == "apply" and checks and all(check.get("status") == "pass" for check in checks):
+        return {"generated_at": generated_at, "checks": checks, "status": "pass"}
+    return existing.get("external_platform_services_qualification")
+
+
 def main():
     args = parse_args()
     phase_1 = load_json(args.phase_1_report, {})
@@ -64,6 +71,8 @@ def main():
     recap = parse_recap(args.ansible_output.read_text(encoding="utf-8", errors="replace"))
     checks = list(facts.pop("checks", []))
     runtime_checks = runtime.get("checks", []) if isinstance(runtime, dict) else []
+    existing = load_json(args.report, {})
+    generated_at = dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z")
     if runtime_checks:
         checks.extend(runtime_checks)
     else:
@@ -81,10 +90,19 @@ def main():
     })
     failed = args.ansible_status != 0 or any(check.get("status") == "fail" for check in checks)
     pending = any(check.get("status") == "pending" for check in checks)
+    runs = existing.get("lifecycle", {}).get("runs", [])
+    overall_status = "fail" if failed else ("partial" if pending else "pass")
+    runs.append({
+        "generated_at": generated_at,
+        "mode": args.mode,
+        "ansible_recap": recap,
+        "external_write_tests": args.mode == "apply" and bool(runtime_checks),
+        "overall_status": overall_status,
+    })
     report = {
         "schema_version": "1",
         "phase": "phase-3-host-data-services",
-        "generated_at": dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z"),
+        "generated_at": generated_at,
         "environment": args.environment,
         "mode": args.mode,
         "phase_1": {"overall_status": phase_1.get("overall_status"), "finished_at": phase_1.get("finished_at")},
@@ -97,8 +115,11 @@ def main():
             "provisioning_mode": runtime.get("provisioning_mode"),
             "delivery_profile": runtime.get("delivery_profile"),
             "tls_enabled": runtime.get("tls_enabled"),
+            "external_platform_services": runtime.get("external_platform_services"),
         },
-        "overall_status": "fail" if failed else ("partial" if pending else "pass"),
+        "external_platform_services_qualification": external_qualification(args.mode, runtime_checks, existing, generated_at),
+        "lifecycle": {"runs": runs[-20:]},
+        "overall_status": overall_status,
     }
     assert_redacted(report)
     args.report.parent.mkdir(parents=True, exist_ok=True)

@@ -178,6 +178,7 @@ set -e
 
 set +e
 python3 "$DATA_SERVICES_RUNTIME" \
+    --mode "$action" \
   --platform "$environment_dir/platform.yml" \
   --secrets "$environment_dir/secrets.sops.yml" \
   --report "$phase3_runtime_path"
