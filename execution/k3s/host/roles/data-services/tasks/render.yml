@@ -1,0 +1,38 @@
+---
+- name: Render Phase 3 definitions in memory
+  ansible.builtin.set_fact:
+    data_services_rendered_compose: "{{ lookup('ansible.builtin.template', 'compose.yml.j2') }}"
+    data_services_rendered_mariadb: "{{ lookup('ansible.builtin.template', 'mariadb.cnf.j2') }}"
+    data_services_rendered_redis: "{{ lookup('ansible.builtin.template', 'redis.conf.j2') }}"
+    data_services_rendered_webhook: "{{ lookup('ansible.builtin.template', 'alert-receiver.py.j2') }}"
+    data_services_rendered_minio_policy: "{{ lookup('ansible.builtin.template', 'minio-restic-policy.json.j2') }}"
+    data_services_rendered_unit: "{{ lookup('ansible.builtin.template', 'mokla-data-services.service.j2') }}"
+
+- name: Parse rendered Compose definition
+  ansible.builtin.set_fact:
+    data_services_compose_definition: "{{ data_services_rendered_compose | from_yaml }}"
+
+- name: Validate rendered service definitions
+  ansible.builtin.assert:
+    that:
+      - data_services_compose_definition.name == data_services_project_name
+      - data_services_compose_definition.services | length == 4
+      - data_services_compose_definition.services.mariadb.network_mode == 'host'
+      - data_services_compose_definition.services.redis.network_mode == 'host'
+      - data_services_compose_definition.services.minio.network_mode == 'host'
+      - data_services_compose_definition.services['alert-receiver'].network_mode == 'host'
+      - "'ports' not in data_services_compose_definition.services.mariadb"
+      - "'ports' not in data_services_compose_definition.services.redis"
+      - "'ports' not in data_services_compose_definition.services.minio"
+      - "'ports' not in data_services_compose_definition.services['alert-receiver']"
+      - data_services_compose_definition.services.mariadb.image == data_services.mariadb.image
+      - data_services_compose_definition.services.redis.image == data_services.redis.image
+      - data_services_compose_definition.services.minio.image == external_platform_services.object_storage.image
+      - data_services_compose_definition.services['alert-receiver'].image == external_platform_services.alert_receiver.image
+      - "data_services.tls.enabled or 'require_secure_transport = OFF' in data_services_rendered_mariadb"
+      - "data_services.tls.enabled or 'port ' ~ (data_services.redis.port | string) in data_services_rendered_redis"
+      - "not data_services.tls.enabled or 'require_secure_transport = ON' in data_services_rendered_mariadb"
+      - "not data_services.tls.enabled or 'tls-port ' ~ (data_services.redis.port | string) in data_services_rendered_redis"
+      - "not data_services.systemd_supervision_enabled or 'ExecStop=' in data_services_rendered_unit"
+      - "not data_services.systemd_supervision_enabled or ' down' not in data_services_rendered_unit"
+    fail_msg: Rendered Phase 3 definitions violate the service isolation contract.

@@ -20,7 +20,7 @@ Deliver DMOJ and Keycloak as Layer 3 Kubernetes workloads on k3s, consuming immu
 Implement and validate these items on one k3s server before planning additional machines:
 
 1. Install a single k3s server with its default SQLite datastore, bundled Traefik, and local-path provisioner.
-2. Create the `dmoj-test` namespace and deploy only test manifests using immutable image digests.
+2. Create the `judge-test` namespace and deploy only test manifests using immutable image digests.
 3. Connect pods to the external DMOJ MariaDB, Keycloak MariaDB, and Redis through explicit Services/Endpoints; do not move stateful data into k3s yet.
 4. Add public DMOJ ingress, Keycloak ingress when enabled, and the stable bridged service port.
 5. Test backup and restore for every external stateful service before a production cutover.
@@ -47,11 +47,11 @@ Implement later, as separate commits:
 
 Use a planned cutover rather than attempting live conversion:
 
-1. Build and validate the new three-server cluster with `dmoj-test` manifests and disposable data.
+1. Build and validate the new three-server cluster with `judge-test` manifests and disposable data.
 2. Confirm all external database, Redis, TLS, and image-registry connections from the new cluster.
 3. Freeze production writes: put DMOJ into maintenance mode and stop workers/ingress after active submissions finish or are recorded for retry.
 4. Back up DMOJ MariaDB, Keycloak MariaDB, Redis configuration/state if applicable, and current Kubernetes/Compose deployment metadata.
-5. Deploy the exact production image digests and manifests to `dmoj-prod` on the new cluster.
+5. Deploy the exact production image digests and manifests to `judge-prod` on the new cluster.
 6. Run DMOJ anonymous browsing, authenticated login, submission, remote judge, and Keycloak OIDC smoke tests.
 7. Switch public DNS/load-balancer traffic only after the checks pass; retain the original single-node stack unchanged for rollback.
 8. If validation fails, switch traffic back and restore the external stateful services only if they were modified during the attempt.
@@ -68,7 +68,11 @@ infra/k3s/
     prod/        # production-only values and references
 ```
 
-Use namespaces `dmoj-test` and `dmoj-prod`. Treat `dmoj-test` as disposable.
+Use `judge-platform` as the application-platform umbrella and namespaces `judge-test`
+and `judge-prod` for its environment instances. Treat `judge-test` as disposable. A
+future staging environment uses `judge-staging`, but no staging namespace is created
+until that environment is approved. This vocabulary applies to Kubernetes namespaces;
+it does not implicitly rename the existing Compose project or Keycloak realm.
 
 ## Observability Add-On Plan
 
@@ -82,7 +86,7 @@ infra/addons/observability/
     prod/               # reviewed retention, storage, and alert routing
 ```
 
-Use a namespace such as `observability`. It observes `dmoj-test` and `dmoj-prod` but is not deployed as part of either application overlay.
+Use a namespace such as `observability`. It observes `judge-test` and `judge-prod` but is not deployed as part of either application overlay.
 
 ### Components and Roles
 
@@ -139,7 +143,7 @@ Each numbered item is separately committable and must include a manual test proc
 ```bash
 kubectl kustomize infra/k3s/overlays/test
 kubectl apply --dry-run=server -k infra/k3s/overlays/test
-kubectl get pods -n dmoj-test
+kubectl get pods -n judge-test
 ```
 
 For connectivity, use a short-lived test pod in the target namespace rather than assuming host-level reachability proves pod reachability.

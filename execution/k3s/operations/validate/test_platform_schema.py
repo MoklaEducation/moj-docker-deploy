@@ -1,0 +1,212 @@
+#!/usr/bin/env python3
+"""Focused regression tests for the platform configuration schema."""
+
+import copy
+import json
+import pathlib
+import unittest
+
+import yaml
+from jsonschema import Draft202012Validator
+
+
+ROOT = pathlib.Path(__file__).parents[2]
+SCHEMA = json.loads((ROOT / "operations/validate/schemas/platform.schema.json").read_text(encoding="utf-8"))
+PLATFORM = yaml.safe_load((ROOT / "environments/test/platform.yml").read_text(encoding="utf-8"))
+VALIDATOR = Draft202012Validator(SCHEMA)
+
+
+class PlatformSchemaTests(unittest.TestCase):
+    def assert_invalid(self, path, value):
+        platform = copy.deepcopy(PLATFORM)
+        target = platform
+        for component in path[:-1]:
+            target = target[component]
+        target[path[-1]] = value
+        self.assertTrue(list(VALIDATOR.iter_errors(platform)), path)
+
+    def test_test_environment_matches_complete_contract(self):
+        self.assertEqual([], list(VALIDATOR.iter_errors(PLATFORM)))
+
+    def test_development_profile_does_not_require_deferred_fields(self):
+        platform = copy.deepcopy(PLATFORM)
+        platform["data_services"]["tls"] = {"enabled": False}
+        platform["backup"] = {"enabled": False}
+        self.assertEqual([], list(VALIDATOR.iter_errors(platform)))
+
+    def test_phase_2_host_fields_are_required(self):
+        for field in (
+            "config_root", "state_root", "evidence_root", "minimum_free_disk_percent",
+            "timezone", "automation_user", "ssh_port", "disable_swap",
+            "allow_automatic_security_updates", "allow_automatic_reboot", "journald_max_use",
+        ):
+            platform = copy.deepcopy(PLATFORM)
+            del platform["host"][field]
+            self.assertTrue(list(VALIDATOR.iter_errors(platform)), field)
+
+    def test_phase_2_docker_fields_are_required(self):
+        for field in (
+            "apt_repository", "repository_key_fingerprint", "engine_version",
+            "compose_plugin_version", "data_root", "log_max_size", "log_max_files",
+        ):
+            platform = copy.deepcopy(PLATFORM)
+            del platform["docker"][field]
+            self.assertTrue(list(VALIDATOR.iter_errors(platform)), field)
+
+    def test_phase_3_data_service_fields_are_required(self):
+        required_fields = {
+            "data_services": ("delivery_profile", "provisioning_mode", "systemd_supervision_enabled", "bind_address", "allowed_client_cidrs", "tls", "mariadb", "redis"),
+            "mariadb": (
+                "image", "compatibility_rationale", "image_scan", "port", "runtime_uid", "runtime_gid", "probe_username", "probe_password_secret_key", "character_set", "collation", "data_path", "config_path",
+                "backup_timeout_seconds", "health_timeout_seconds", "memory_limit", "cpus",
+            ),
+            "redis": (
+                "image", "compatibility_rationale", "image_scan", "port", "runtime_uid", "runtime_gid", "probe_username", "probe_password_secret_key", "authentication_enabled", "data_policy", "data_path", "config_path",
+                "maxmemory", "maxmemory_policy", "health_timeout_seconds", "memory_limit", "cpus",
+            ),
+        }
+        for section, fields in required_fields.items():
+            for field in fields:
+                with self.subTest(section=section, field=field):
+                    platform = copy.deepcopy(PLATFORM)
+                    target = platform["data_services"] if section == "data_services" else platform["data_services"][section]
+                    del target[field]
+                    self.assertTrue(list(VALIDATOR.iter_errors(platform)), field)
+
+    def test_phase_3_external_platform_service_fields_are_required(self):
+        for field in ("profile", "provisioning_mode", "bind_address", "allowed_client_cidrs", "object_storage", "alert_receiver"):
+            with self.subTest(field=field):
+                platform = copy.deepcopy(PLATFORM)
+                del platform["external_platform_services"][field]
+                self.assertTrue(list(VALIDATOR.iter_errors(platform)), field)
+
+    def test_phase_3_backup_fields_are_required(self):
+        for field in (
+            "enabled", "repository_mode", "local_repository_risk_accepted", "restic_repository",
+            "repository_credential_secret_keys", "staging_path", "schedule",
+            "randomized_delay_seconds", "retention", "minimum_expected_frequency_hours",
+            "minimum_free_space_mb", "restore",
+        ):
+            with self.subTest(field=field):
+                platform = copy.deepcopy(PLATFORM)
+                platform["backup"]["enabled"] = True
+                del platform["backup"][field]
+                self.assertTrue(list(VALIDATOR.iter_errors(platform)), field)
+
+    def test_phase_4_k3s_fields_are_required(self):
+        for field in (
+            "version", "checksum", "node_name", "node_ip", "api_bind_address",
+            "tls_sans", "cluster_cidr", "service_cidr", "cluster_dns", "data_dir",
+            "local_storage_path", "kubeconfig_output", "secrets_encryption",
+        ):
+            with self.subTest(field=field):
+                platform = copy.deepcopy(PLATFORM)
+                del platform["k3s"][field]
+                self.assertTrue(list(VALIDATOR.iter_errors(platform)), field)
+
+    def test_phase_5_cluster_core_fields_are_required(self):
+        for field in (
+            "managed_by", "application_umbrella", "namespaces", "pod_security",
+            "identities", "quotas", "limits", "network", "storage",
+            "secret_delivery", "smoke_image",
+        ):
+            with self.subTest(field=field):
+                platform = copy.deepcopy(PLATFORM)
+                del platform["cluster_core"][field]
+                self.assertTrue(list(VALIDATOR.iter_errors(platform)), field)
+
+    def test_phase_6_cluster_addon_fields_are_required(self):
+        for field in (
+            "managed_by", "profile", "identity", "namespaces", "private_access",
+            "capabilities", "certificates", "metrics", "logs",
+        ):
+            with self.subTest(field=field):
+                platform = copy.deepcopy(PLATFORM)
+                del platform["cluster_addons"][field]
+                self.assertTrue(list(VALIDATOR.iter_errors(platform)), field)
+
+    def test_unsafe_phase_2_values_are_rejected(self):
+        invalid_values = (
+            (("host", "storage_root"), "relative/path"),
+            (("host", "ssh_port"), 0),
+            (("host", "allow_automatic_reboot"), True),
+            (("host", "minimum_free_disk_percent"), 100),
+            (("docker", "apt_repository"), "http://example.invalid/docker"),
+            (("docker", "repository_key_fingerprint"), "not-a-fingerprint"),
+            (("docker", "engine_version"), "REPLACE_WITH_REVIEWED_VERSION"),
+            (("docker", "compose_plugin_version"), "REPLACE_WITH_REVIEWED_VERSION"),
+            (("docker", "log_max_files"), 0),
+        )
+        for path, value in invalid_values:
+            with self.subTest(path=path):
+                self.assert_invalid(path, value)
+
+    def test_structurally_invalid_phase_3_values_are_rejected(self):
+        invalid_values = (
+            (("data_services", "mariadb", "port"), 0),
+            (("data_services", "mariadb", "data_path"), "relative/path"),
+            (("data_services", "mariadb", "memory_limit"), "unbounded"),
+            (("data_services", "redis", "data_policy"), "best-effort"),
+            (("data_services", "redis", "maxmemory"), 0),
+            (("data_services", "redis", "maxmemory_policy"), "unknown"),
+            (("backup", "repository_credential_secret_keys"), ["INVALID-KEY"]),
+            (("backup", "retention", "daily"), 0),
+            (("backup", "restore", "target_root"), "relative/path"),
+            (("backup", "restore", "redis_port"), 70000),
+        )
+        for path, value in invalid_values:
+            with self.subTest(path=path):
+                self.assert_invalid(path, value)
+
+    def test_structurally_invalid_phase_4_values_are_rejected(self):
+        invalid_values = (
+            (("k3s", "version"), "stable"),
+            (("k3s", "checksum"), "not-a-checksum"),
+            (("k3s", "node_name"), "INVALID_NAME"),
+            (("k3s", "data_dir"), "relative/path"),
+            (("k3s", "kubeconfig_output"), "../kubeconfig"),
+            (("k3s", "secrets_encryption"), False),
+        )
+        for path, value in invalid_values:
+            with self.subTest(path=path):
+                self.assert_invalid(path, value)
+
+    def test_structurally_invalid_phase_5_values_are_rejected(self):
+        invalid_values = (
+            (("cluster_core", "managed_by"), "someone-else"),
+            (("cluster_core", "namespaces", "application"), "dmoj-test"),
+            (("cluster_core", "pod_security", "enforce"), "privileged"),
+            (("cluster_core", "identities", "operator", "certificate_validity_days"), 365),
+            (("cluster_core", "quotas", "application", "requests_cpu"), "unbounded"),
+            (("cluster_core", "storage", "class_name"), "unknown"),
+            (("cluster_core", "secret_delivery", "age_recipient"), "not-an-age-recipient"),
+            (("cluster_core", "smoke_image"), "busybox:latest"),
+        )
+        for path, value in invalid_values:
+            with self.subTest(path=path):
+                self.assert_invalid(path, value)
+
+    def test_structurally_invalid_phase_6_values_are_rejected(self):
+        invalid_values = (
+            (("cluster_addons", "managed_by"), "another-manager"),
+            (("cluster_addons", "profile"), "production"),
+            (("cluster_addons", "namespaces", "certificates"), "default"),
+            (("cluster_addons", "private_access", "mode"), "public-ingress"),
+            (("cluster_addons", "capabilities", "backups"), True),
+            (("cluster_addons", "certificates", "hostname"), "INVALID_HOST"),
+            (("cluster_addons", "certificates", "duration"), "seven-days"),
+            (("cluster_addons", "metrics", "retention"), "forever"),
+            (("cluster_addons", "metrics", "prometheus_storage"), "unbounded"),
+            (("cluster_addons", "metrics", "alert_receiver_endpoint"), "https://public.example/alerts"),
+            (("cluster_addons", "logs", "retention"), "forever"),
+            (("cluster_addons", "logs", "ingestion_rate_mb"), 0),
+            (("cluster_addons", "logs", "namespaces"), ["kube-system", "kube-system"]),
+            (("cluster_addons", "logs", "redaction_policy"), "none"),
+        )
+        for path, value in invalid_values:
+            with self.subTest(path=path):
+                self.assert_invalid(path, value)
+
+
+if __name__ == "__main__":
+    unittest.main()

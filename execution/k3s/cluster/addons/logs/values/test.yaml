@@ -1,0 +1,71 @@
+deploymentMode: SingleBinary
+
+loki:
+  auth_enabled: false
+  image:
+    digest: sha256:44148ad243c07957113baea950ee5ba9b0c8eff8d7e38ff3cc1c0af705790945
+  commonConfig:
+    replication_factor: 1
+  schemaConfig:
+    configs:
+      - from: "2024-04-01"
+        store: tsdb
+        object_store: filesystem
+        schema: v13
+        index:
+          prefix: index_
+          period: 24h
+  storage:
+    type: filesystem
+    bucketNames: {chunks: chunks, ruler: ruler, admin: admin}
+  limits_config:
+    retention_period: 48h
+    ingestion_rate_mb: 2
+    ingestion_burst_size_mb: 4
+    max_query_parallelism: 4
+    max_query_series: 500
+    max_entries_limit_per_query: 5000
+    reject_old_samples: true
+    reject_old_samples_max_age: 48h
+  compactor:
+    retention_enabled: true
+    delete_request_store: filesystem
+  analytics:
+    reporting_enabled: false
+  podSecurityContext:
+    fsGroup: 10001
+    fsGroupChangePolicy: OnRootMismatch
+    runAsGroup: 10001
+    runAsNonRoot: true
+    runAsUser: 10001
+    seccompProfile: {type: RuntimeDefault}
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    capabilities: {drop: [ALL]}
+    readOnlyRootFilesystem: true
+
+singleBinary:
+  replicas: 1
+  resources:
+    requests: {cpu: 200m, memory: 384Mi}
+    limits: {cpu: 500m, memory: 1Gi}
+  persistence:
+    enabled: true
+    storageClass: local-path
+    size: 8Gi
+
+backend: {replicas: 0}
+read: {replicas: 0}
+write: {replicas: 0}
+gateway: {enabled: false}
+lokiCanary: {enabled: false}
+chunksCache: {enabled: false}
+resultsCache: {enabled: false}
+test: {enabled: false}
+sidecar:
+  rules: {enabled: false}
+monitoring:
+  dashboards: {enabled: false}
+  rules: {enabled: false}
+  serviceMonitor: {enabled: false}
+  selfMonitoring: {enabled: false}

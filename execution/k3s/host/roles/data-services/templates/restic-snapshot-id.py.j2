@@ -1,0 +1,26 @@
+#!/usr/bin/env python3
+"""Print the snapshot ID from restic JSON output."""
+
+import json
+import pathlib
+import sys
+
+
+def main():
+    path = pathlib.Path(sys.argv[1])
+    snapshot_id = ""
+    for line in path.read_text(encoding="utf-8").splitlines():
+        try:
+            value = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if value.get("message_type") == "summary":
+            snapshot_id = value.get("snapshot_id", "")
+    if not snapshot_id or any(character not in "0123456789abcdef" for character in snapshot_id):
+        return 1
+    print(snapshot_id)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

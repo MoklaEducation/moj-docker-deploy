@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespaces/namespaces.yaml
+  - access/rbac.yaml
+  - quotas/resource-governance.yaml
+  - policies/network-isolation.yaml
+labels:
+  - pairs:
+      app.kubernetes.io/managed-by: mokla-cluster-core
+      platform.mokla/owner: platform
+    includeSelectors: false

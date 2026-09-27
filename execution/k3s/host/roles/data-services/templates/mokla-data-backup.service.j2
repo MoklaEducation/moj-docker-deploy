@@ -1,0 +1,12 @@
+[Unit]
+Description=Mokla data-service backup
+Requires={{ data_services_unit_name }}
+After={{ data_services_unit_name }} network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/mokla-data-backup --environment {{ environment_name }}
+User=root
+Group=root
+PrivateTmp=true
+NoNewPrivileges=true

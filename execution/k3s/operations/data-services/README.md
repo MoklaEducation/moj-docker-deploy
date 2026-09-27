@@ -1,0 +1,96 @@
+# Data-Service Operator Helper
+
+Phase 3 separates service provisioning from service validation. MariaDB, Redis, MinIO,
+and the disposable alert receiver remain outside Kubernetes. Restic is a client of the
+private MinIO S3 endpoint rather than another resident service.
+
+## Test Host: Optional Provisioning
+
+Set `data_services.provisioning_mode: helper-managed` in the environment platform file.
+For the disposable development profile, set `delivery_profile: development`, disable
+TLS, systemd supervision, and backup, and retain authenticated private listeners. The
+helper recreates containers when managed bind-mounted inputs change and leaves unchanged
+containers running across repeated setup calls.
+
+The `co-located-development` external platform service profile adds MinIO and the alert
+receiver to the same Compose project. This provides functional and repeatability testing
+but does not qualify off-host recovery because MinIO shares the k3s VM and Proxmox host.
+Preview configuration and host changes without creating services:
+
+```bash
+./execution/k3s/operations/data-services/data-services check --environment test
+```
+
+Provision only after reviewing recovery access, current containers, target directories,
+firewall rules, image scans, and the Ansible check output:
+
+```bash
+./execution/k3s/operations/data-services/data-services setup \
+  --environment test --provision-host-services
+```
+
+The explicit flag is mandatory. Setup delegates to the existing ordered Ansible path,
+including Phase 1 and Phase 2 prerequisites. It does not install services inside k3s.
+Apply creates the private MinIO bucket and bucket-scoped restic identity, verifies MinIO
+object write/read/delete and denied administration, delivers and clears a controlled
+webhook event, and runs a restic snapshot/check/isolated-restore smoke test.
+
+If a test-host apply used the original root-only Redis file modes, repair only those
+managed permissions with an explicit acknowledgement:
+
+```bash
+./execution/k3s/operations/data-services/repair-test-permissions \
+  --environment test --apply-permission-repair
+```
+
+The repair verifies the Phase 3 ownership marker and derives numeric runtime identities
+from the pinned images. It does not restart services, change configuration, or delete
+data. This is a test recovery helper; the desired-state role must retain the corrected
+ownership before another apply.
+
+## Production: Externally Managed Services
+
+Set `data_services.provisioning_mode: external`, configure the private endpoint and
+dedicated probe identities, and run only `check`. The local Compose, systemd, filesystem,
+UFW, and backup role is skipped. Runtime validation still requires:
+
+- a certificate chain trusted by the configured CA and valid for the endpoint IP;
+- successful MariaDB authentication and `SELECT 1`;
+- successful Redis authentication and `PING`; and
+- no secret material in evidence or command output.
+
+Use least-privilege external probe users through `probe_username` and
+`probe_password_secret_key`. The corresponding values belong in SOPS.
+
+## Temporary Secret Input
+
+Create plaintext only as a restrictive temporary file outside Git:
+
+```bash
+TEMPORARY_SECRETS="$(mktemp --suffix=.yaml)"
+chmod 0600 "$TEMPORARY_SECRETS"
+${EDITOR:-vi} "$TEMPORARY_SECRETS"
+
+./execution/k3s/operations/data-services/data-services encrypt-secrets \
+  --environment test --from "$TEMPORARY_SECRETS" --remove-source
+```
+
+The helper encrypts to the ignored environment `secrets.sops.yml`, validates required
+database, MinIO, restic, and TLS values, and only then replaces the existing encrypted
+file. It removes
+the plaintext source only when `--remove-source` is explicit and validation succeeds.
+
+The test-PKI helper can initialize or rotate generated test credentials and certificates:
+
+```bash
+./execution/k3s/operations/certificates/generate-test-data-services \
+  --environment test --force --update-sops
+```
+
+## Acceptance Boundary
+
+The protocol checks run from the controller. Development proves private endpoint
+reachability, authentication, MinIO bucket access with denied administration, controlled
+alert delivery, and restic repository behavior. Hardened/external profiles
+also require TLS; production acceptance must still test from an allowed k3s pod/client
+network and from a denied external source.

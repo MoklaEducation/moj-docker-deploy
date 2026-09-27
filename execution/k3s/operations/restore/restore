@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+K3S_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+REPORTER="$K3S_DIR/operations/validate/data_services_operation_report.py"
+
+usage() {
+  echo "Usage: restore data-services --environment NAME --snapshot ID --target ISOLATED_PATH" >&2
+}
+
+[[ "${1:-}" == data-services ]] || { usage; exit 2; }
+shift
+environment=""
+snapshot=""
+target=""
+while (($#)); do
+  case "$1" in
+    --environment) (($# >= 2)) || { usage; exit 2; }; environment="$2"; shift 2 ;;
+    --snapshot) (($# >= 2)) || { usage; exit 2; }; snapshot="$2"; shift 2 ;;
+    --target) (($# >= 2)) || { usage; exit 2; }; target="$2"; shift 2 ;;
+    *) usage; exit 2 ;;
+  esac
+done
+[[ -n "$environment" && -n "$snapshot" && -n "$target" ]] || { usage; exit 2; }
+report="$K3S_DIR/.evidence/$environment/phase-3-restore.json"
+output="$(mktemp)"
+trap 'rm -f "$output"' EXIT
+set +e
+sudo -n /usr/local/sbin/mokla-data-restore-test \
+  --environment "$environment" --snapshot "$snapshot" --target "$target" >"$output"
+status=$?
+set -e
+python3 "$REPORTER" --operation restore --environment "$environment" --status "$status" \
+  --output "$output" --report "$report" --snapshot "$snapshot" --target "$target"
+exit "$status"

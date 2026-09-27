@@ -1,0 +1,29 @@
+---
+- name: Allow pod traffic to host cluster services
+  community.general.ufw:
+    rule: allow
+    direction: in
+    interface: cni0
+    from_ip: "{{ k3s.cluster_cidr }}"
+    comment: mokla k3s pod to host
+  when: not ansible_check_mode
+
+- name: Allow pod traffic through ClusterIP routing
+  community.general.ufw:
+    rule: allow
+    route: true
+    interface_in: cni0
+    from_ip: "{{ k3s.cluster_cidr }}"
+    to_ip: "{{ k3s.service_cidr }}"
+    comment: mokla k3s pod to services
+  when: not ansible_check_mode
+
+- name: Allow pod egress through the host uplink
+  community.general.ufw:
+    rule: allow
+    route: true
+    interface_in: cni0
+    interface_out: "{{ ansible_facts['default_ipv4']['interface'] }}"
+    from_ip: "{{ k3s.cluster_cidr }}"
+    comment: mokla k3s pod egress
+  when: not ansible_check_mode

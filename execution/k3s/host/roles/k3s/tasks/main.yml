@@ -1,0 +1,22 @@
+---
+- name: Validate Phase 4 preconditions and adoption safety
+  ansible.builtin.import_tasks: validate.yml
+
+- name: Apply compatible upstream host prerequisites
+  ansible.builtin.include_role:
+    name: k3s.orchestration.prereq
+  vars:
+    manage_firewall: false
+    k3s_server_location: /var/lib/rancher/k3s
+
+- name: Install the exact k3s release
+  ansible.builtin.import_tasks: install.yml
+
+- name: Configure Phase 4 firewall integration
+  ansible.builtin.import_tasks: firewall.yml
+
+- name: Retrieve protected bootstrap kubeconfig
+  ansible.builtin.import_tasks: kubeconfig.yml
+
+- name: Verify Phase 4 host state
+  ansible.builtin.import_tasks: verify.yml

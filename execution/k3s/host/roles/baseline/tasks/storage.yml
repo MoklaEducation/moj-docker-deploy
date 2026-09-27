@@ -1,0 +1,16 @@
+---
+- name: Create restricted platform roots
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - {path: "{{ host.storage_root }}", mode: "0750"}
+    - {path: "{{ host.config_root }}", mode: "0750"}
+    - {path: "{{ host.state_root }}", mode: "0750"}
+    - {path: "{{ host.evidence_root }}", mode: "0750"}
+    - {path: "{{ docker.data_root }}", mode: "0710"}
+  loop_control:
+    label: "{{ item.path }}"

@@ -1,0 +1,242 @@
+environment_name: test
+target_connection:
+  mode: local
+host_fqdn: bastion151
+host_address: 192.168.1.151
+network:
+  administrative_cidrs: [192.168.1.0/24]
+  public_ingress_ports: [80, 443]
+  pod_cidr: 10.42.0.0/16
+  service_cidr: 10.43.0.0/16
+  dns_names: [bastion151, download.docker.com]
+  outbound_https_endpoints: [https://download.docker.com/linux/ubuntu/]
+host:
+  os_distribution: Ubuntu
+  os_versions: ["24.04", "26.04"]
+  storage_root: /srv/mokla
+  config_root: /etc/mokla
+  state_root: /var/lib/mokla
+  evidence_root: /var/log/mokla
+  minimum_cpu: 4
+  minimum_memory_mb: 4096
+  minimum_root_free_gb: 4
+  minimum_free_disk_percent: 20
+  timezone: Etc/UTC
+  automation_user: ubuntu
+  ssh_port: 22
+  disable_swap: true
+  allow_automatic_security_updates: true
+  allow_automatic_reboot: false
+  journald_max_use: 1G
+docker:
+  apt_repository: https://download.docker.com/linux/ubuntu
+  repository_key_fingerprint: 9DC858229FC7DD38854AE2D88D81803C0EBFCD88
+  engine_version: 5:29.6.1-1~ubuntu.24.04~noble
+  compose_plugin_version: 5.3.0-1~ubuntu.24.04~noble
+  data_root: /srv/mokla/docker
+  log_max_size: 20m
+  log_max_files: 5
+data_services:
+  delivery_profile: development
+  provisioning_mode: helper-managed
+  systemd_supervision_enabled: false
+  bind_address: 192.168.1.151
+  allowed_client_cidrs: [10.42.0.0/16, 192.168.1.0/24]
+  tls:
+    enabled: false
+    minimum_version: TLSv1.2
+    server_certificate_secret_key: data_services_tls_certificate
+    server_private_key_secret_key: data_services_tls_private_key
+    ca_certificate_secret_key: data_services_ca_certificate
+    renewal_owner: test-controller-pki-script
+  mariadb:
+    image: docker.io/library/mariadb:11.8.6@sha256:df764e5c6d6d3fcf4a6c298f9ab52d4e783d34f6dc0347da91933ad7f5f6ebb6
+    compatibility_rationale: MariaDB 11.8 LTS official linux/amd64 image selected for the initial test platform
+    image_scan: {scanner: Trivy 0.66.0, scanned_at: "2026-09-19", findings: "Test acceptance: 308 total; 1 critical and 25 high, all 26 fixable", approved_by: test-environment-owner}
+    port: 3306
+    runtime_uid: 999
+    runtime_gid: 999
+    probe_username: root
+    probe_password_secret_key: mariadb_root_password
+    character_set: utf8mb4
+    collation: utf8mb4_unicode_ci
+    data_path: /srv/mokla/data-services/mariadb/data
+    config_path: /etc/mokla/data-services/mariadb
+    backup_timeout_seconds: 1800
+    health_timeout_seconds: 120
+    memory_limit: 1G
+    cpus: 1.0
+  redis:
+    image: docker.io/library/redis:8.2.4-alpine@sha256:9189e09a0da398da80a6525d91eecaac3739eb3503e8c5f15792b7a5457022c0
+    compatibility_rationale: Redis 8.2 Alpine official linux/amd64 image minimizes the package surface for disposable cache and queue use in test
+    image_scan: {scanner: Trivy 0.66.0, scanned_at: "2026-09-19", findings: "Test acceptance: 78 total; 2 critical and 21 high, all 23 high or critical fixable", approved_by: test-environment-owner}
+    port: 6379
+    runtime_uid: 999
+    runtime_gid: 1000
+    probe_username: default
+    probe_password_secret_key: redis_password
+    authentication_enabled: true
+    data_policy: disposable
+    data_path: /srv/mokla/data-services/redis/data
+    config_path: /etc/mokla/data-services/redis
+    maxmemory: 268435456
+    maxmemory_policy: allkeys-lru
+    health_timeout_seconds: 60
+    memory_limit: 384M
+    cpus: 0.5
+external_platform_services:
+  profile: co-located-development
+  provisioning_mode: helper-managed
+  bind_address: 192.168.1.151
+  allowed_client_cidrs: [10.42.0.0/16, 192.168.1.0/24]
+  object_storage:
+    provider: minio
+    distribution_status: frozen-legacy-test-only
+    image: docker.io/bitnamilegacy/minio:2025.7.23-debian-12-r3@sha256:fdb6ff48c314e024fdd71960cb94d6c9b65a8bc38338990613da48090b8ff3ee
+    compatibility_rationale: Frozen Bitnami MinIO 2025.7.23 image accepted only for disposable S3-compatible workflow testing because the official image registry is not anonymously accessible
+    image_scan: {scanner: registry-metadata-review, scanned_at: "2026-09-27", findings: "Vulnerability scan pending; frozen legacy distribution accepted only for disposable test", approved_by: test-environment-owner}
+    api_port: 9000
+    console_port: 9001
+    runtime_uid: 1001
+    runtime_gid: 0
+    bucket: mokla-test-backups
+    data_path: /srv/mokla/platform-services/minio/data
+    root_user_secret_key: minio_root_user
+    root_password_secret_key: minio_root_password
+    restic_access_key_secret_key: minio_restic_access_key
+    restic_secret_key_secret_key: minio_restic_secret_key
+    health_timeout_seconds: 120
+    memory_limit: 768M
+    cpus: 1.0
+  alert_receiver:
+    image: docker.io/library/python:3.13.7-alpine3.22@sha256:527c28b29498575b851ad88e7522ac7201bbd9e920d2c11b00ff2b39b315f5f8
+    compatibility_rationale: Python standard-library HTTP receiver runs as nobody with no added packages for disposable alert delivery tests
+    image_scan: {scanner: registry-metadata-review, scanned_at: "2026-09-27", findings: "Vulnerability scan pending; official minimal runtime accepted only for disposable test receiver", approved_by: test-environment-owner}
+    port: 9080
+    runtime_uid: 65534
+    runtime_gid: 65534
+    endpoint: http://192.168.1.151:9080/alerts
+    data_policy: disposable
+    max_events: 100
+    health_timeout_seconds: 60
+    memory_limit: 128M
+    cpus: 0.25
+backup:
+  enabled: false
+  repository_mode: local-development
+  local_repository_risk_accepted: true
+  restic_repository: /srv/mokla/restic-repository
+  repository_credential_secret_keys: []
+  staging_path: /srv/mokla/backup-staging
+  schedule: "*-*-* 03:15:00 UTC"
+  randomized_delay_seconds: 900
+  retention: {daily: 7, weekly: 4, monthly: 6}
+  minimum_expected_frequency_hours: 26
+  minimum_free_space_mb: 2048
+  restore:
+    target_root: /srv/mokla/restore-tests
+    bind_address: 127.0.0.1
+    mariadb_port: 13306
+    redis_port: 16379
+k3s:
+  version: v1.36.3+k3s1
+  checksum: 2f98a9f8fe5782479ee2d54e70a1b10a7f6fd4cae8d38ed3098452dc6eed76b5
+  node_name: bastion151
+  node_ip: 192.168.1.151
+  api_bind_address: 192.168.1.151
+  tls_sans: [192.168.1.151, bastion151]
+  cluster_cidr: 10.42.0.0/16
+  service_cidr: 10.43.0.0/16
+  cluster_dns: 10.43.0.10
+  data_dir: /srv/mokla/k3s/server
+  local_storage_path: /srv/mokla/k3s/storage
+  kubeconfig_output: execution/k3s/environments/test/.generated/bootstrap-admin.kubeconfig
+  secrets_encryption: true
+cluster_core:
+  managed_by: mokla-cluster-core
+  application_umbrella: judge-platform
+  namespaces:
+    platform: platform-system
+    observability: observability
+    backup: backup-system
+    application: judge-test
+    reserved: [judge-prod, judge-staging]
+  pod_security:
+    enforce: restricted
+    audit: restricted
+    warn: restricted
+    version: latest
+  identities:
+    operator:
+      name: mokla-platform-operator
+      group: mokla:platform-operators
+      kubeconfig_output: execution/k3s/environments/test/.generated/platform-operator.kubeconfig
+      certificate_validity_days: 30
+    automation:
+      name: mokla-cluster-core
+      group: mokla:cluster-core
+      kubeconfig_output: execution/k3s/environments/test/.generated/cluster-core.kubeconfig
+      certificate_validity_days: 30
+  quotas:
+    platform: {requests_cpu: 500m, requests_memory: 512M, limits_cpu: "1", limits_memory: 1G, pods: 20, persistentvolumeclaims: 2, requests_storage: 5G}
+    observability: {requests_cpu: 1500m, requests_memory: 3G, limits_cpu: "3", limits_memory: 6G, pods: 30, persistentvolumeclaims: 8, requests_storage: 50G}
+    backup: {requests_cpu: 500m, requests_memory: 1G, limits_cpu: "1", limits_memory: 2G, pods: 15, persistentvolumeclaims: 4, requests_storage: 20G}
+    application: {requests_cpu: "2", requests_memory: 4G, limits_cpu: "4", limits_memory: 8G, pods: 40, persistentvolumeclaims: 5, requests_storage: 20G}
+  limits:
+    default_request_cpu: 100m
+    default_request_memory: 128M
+    default_cpu: 500m
+    default_memory: 512M
+  network:
+    dns_namespace: kube-system
+    dns_pod_label: k8s-app=kube-dns
+    allow_application_data_services: true
+  storage:
+    class_name: local-path
+    remain_default: true
+    allowed_namespaces: [platform-system, observability, backup-system, judge-test]
+  secret_delivery:
+    provider: sops-age
+    age_recipient: age1rwwjrh53mxx43xps8glry9uk4aga839wlr85ceftvr0905dgqvxsrgke24
+    identity_environment_variable: SOPS_AGE_KEY_FILE
+  smoke_image: docker.io/library/busybox:1.36.1@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
+cluster_addons:
+  managed_by: mokla-cluster-addons
+  profile: private-test
+  identity:
+    name: mokla-cluster-addons
+    group: mokla:cluster-addons
+    kubeconfig_output: execution/k3s/environments/test/.generated/cluster-addons.kubeconfig
+    certificate_validity_days: 30
+  namespaces:
+    certificates: cert-manager
+    node_agents: observability-agents
+  private_access:
+    mode: port-forward
+  capabilities:
+    certificates: true
+    metrics: true
+    logs: true
+    backups: false
+  certificates:
+    issuer_name: mokla-test-ca
+    hostname: phase6.test.mokla.local
+    duration: 168h
+    renew_before: 24h
+    ingress_class: traefik
+  metrics:
+    retention: 48h
+    scrape_interval: 30s
+    evaluation_interval: 30s
+    prometheus_storage: 8G
+    alertmanager_storage: 1G
+    grafana_storage: 2G
+    alert_receiver_endpoint: http://192.168.1.151:9080/alerts
+  logs:
+    retention: 48h
+    storage: 8G
+    ingestion_rate_mb: 2
+    ingestion_burst_mb: 4
+    max_query_parallelism: 4
+    namespaces: [kube-system, platform-system, observability, observability-agents, cert-manager, judge-test]
+    redaction_policy: phase6-sensitive-v1

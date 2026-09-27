@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+[[ "$EUID" -eq 0 ]] || { echo "error: verification must run as root" >&2; exit 1; }
+[[ "${1:-}" == "--environment" && "${2:-}" == "{{ environment_name }}" && "${3:-}" == "--snapshot" && -n "${4:-}" && $# -eq 4 ]] || { echo "error: expected --environment {{ environment_name }} --snapshot ID" >&2; exit 2; }
+snapshot="$4"
+[[ "$snapshot" =~ ^[0-9a-f]+$ ]] || { echo "error: invalid snapshot ID" >&2; exit 2; }
+
+SECRET_ROOT={{ data_services_backup_secret_root | quote }}
+export RESTIC_REPOSITORY={{ backup.restic_repository | quote }}
+export RESTIC_PASSWORD_FILE="$SECRET_ROOT/restic_password"
+{% for key in backup.repository_credential_secret_keys %}
+{{ key | regex_replace('^restic_', '') | upper }}="$(<"$SECRET_ROOT/{{ key }}")"
+export {{ key | regex_replace('^restic_', '') | upper }}
+{% endfor %}
+restic snapshots --json "$snapshot" >/dev/null
+restic check
+printf 'verified_snapshot=%s\n' "$snapshot"

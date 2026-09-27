@@ -1,0 +1,42 @@
+---
+- name: Allow administrative SSH before enabling UFW
+  community.general.ufw:
+    rule: allow
+    direction: in
+    proto: tcp
+    from_ip: "{{ item }}"
+    to_port: "{{ host.ssh_port }}"
+    comment: mokla administrative SSH
+  loop: "{{ network.administrative_cidrs }}"
+
+- name: Allow the future Kubernetes API from administrative networks
+  community.general.ufw:
+    rule: allow
+    direction: in
+    proto: tcp
+    from_ip: "{{ item }}"
+    to_port: "6443"
+    comment: mokla future Kubernetes API
+  loop: "{{ network.administrative_cidrs }}"
+
+- name: Allow future public ingress ports
+  community.general.ufw:
+    rule: allow
+    direction: in
+    proto: tcp
+    to_port: "{{ item }}"
+    comment: mokla future public ingress
+  loop: "{{ network.public_ingress_ports }}"
+
+- name: Set UFW default policies
+  community.general.ufw:
+    direction: "{{ item.direction }}"
+    policy: "{{ item.policy }}"
+  loop:
+    - {direction: incoming, policy: deny}
+    - {direction: routed, policy: deny}
+    - {direction: outgoing, policy: allow}
+
+- name: Enable UFW after access rules exist
+  community.general.ufw:
+    state: enabled

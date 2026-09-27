@@ -1,0 +1,9 @@
+---
+- name: Converge Phase 4 k3s installation
+  hosts: platform_host
+  become: true
+  gather_facts: true
+  vars_files:
+    - "{{ platform_file }}"
+  roles:
+    - role: k3s

@@ -1,0 +1,155 @@
+---
+- name: Download the Docker repository signing key for verification
+  ansible.builtin.uri:
+    url: "{{ docker.apt_repository }}/gpg"
+    return_content: true
+    status_code: 200
+  register: baseline_docker_key
+  check_mode: false
+  changed_when: false
+
+- name: Inspect the downloaded Docker key fingerprint
+  ansible.builtin.command:
+    argv: [gpg, --batch, --show-keys, --with-colons]
+    stdin: "{{ baseline_docker_key.content }}"
+  check_mode: false
+  changed_when: false
+  register: baseline_docker_key_details
+
+- name: Verify the Docker repository signing key
+  ansible.builtin.assert:
+    that: docker.repository_key_fingerprint in baseline_docker_key_details.stdout
+    fail_msg: "The downloaded Docker repository key does not match the reviewed fingerprint."
+
+- name: Create the APT keyring directory
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install the verified Docker repository key
+  ansible.builtin.copy:
+    content: "{{ baseline_docker_key.content }}"
+    dest: /etc/apt/keyrings/docker.asc
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Configure the signed Docker repository
+  ansible.builtin.template:
+    src: docker.list.j2
+    dest: /etc/apt/sources.list.d/docker.list
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Refresh package metadata for the verified repository
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+  changed_when: false
+
+- name: Inspect available pinned Docker Engine versions
+  ansible.builtin.command: apt-cache madison docker-ce
+  changed_when: false
+  check_mode: false
+  register: baseline_docker_engine_versions
+
+- name: Inspect available pinned Compose plugin versions
+  ansible.builtin.command: apt-cache madison docker-compose-plugin
+  changed_when: false
+  check_mode: false
+  register: baseline_docker_compose_versions
+
+- name: Verify configured Docker versions are available
+  ansible.builtin.assert:
+    that:
+      - docker.engine_version in baseline_docker_engine_versions.stdout
+      - docker.compose_plugin_version in baseline_docker_compose_versions.stdout
+    fail_msg: "A configured Docker package version is unavailable from the verified repository."
+
+- name: Install exact Docker Engine and Compose versions
+  ansible.builtin.apt:
+    name:
+      - "docker-ce={{ docker.engine_version }}"
+      - "docker-ce-cli={{ docker.engine_version }}"
+      - "docker-compose-plugin={{ docker.compose_plugin_version }}"
+      - containerd.io
+    state: present
+    allow_downgrade: true
+
+- name: Hold platform Docker packages
+  ansible.builtin.dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop:
+    - containerd.io
+    - docker-ce
+    - docker-ce-cli
+    - docker-compose-plugin
+
+- name: Inspect the existing Docker daemon configuration
+  ansible.builtin.stat:
+    path: /etc/docker/daemon.json
+  register: baseline_docker_config_before
+
+- name: Install and activate validated Docker configuration
+  block:
+    - name: Create the Docker configuration directory
+      ansible.builtin.file:
+        path: /etc/docker
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Install validated Docker daemon configuration
+      ansible.builtin.template:
+        src: docker-daemon.json.j2
+        dest: /etc/docker/daemon.json
+        owner: root
+        group: root
+        mode: "0644"
+        backup: true
+        validate: /usr/bin/dockerd --validate --config-file=%s
+      register: baseline_docker_config
+      notify: Restart Docker
+
+    - name: Activate Docker configuration
+      ansible.builtin.meta: flush_handlers
+  rescue:
+    - name: Restore the prior Docker daemon configuration
+      ansible.builtin.copy:
+        src: "{{ baseline_docker_config.backup_file }}"
+        remote_src: true
+        dest: /etc/docker/daemon.json
+        owner: root
+        group: root
+        mode: "0644"
+      when:
+        - baseline_docker_config_before.stat.exists
+        - baseline_docker_config.backup_file is defined
+
+    - name: Remove a new invalid Docker daemon configuration
+      ansible.builtin.file:
+        path: /etc/docker/daemon.json
+        state: absent
+      when: not baseline_docker_config_before.stat.exists
+
+    - name: Restore Docker service after configuration rollback
+      ansible.builtin.systemd_service:
+        name: docker.service
+        state: restarted
+
+    - name: Stop after Docker configuration rollback
+      ansible.builtin.fail:
+        msg: "Docker rejected the managed configuration; the prior configuration was restored."
+
+- name: Enable Docker at boot
+  ansible.builtin.systemd_service:
+    name: docker.service
+    enabled: true
+    state: started
+  when: not ansible_check_mode

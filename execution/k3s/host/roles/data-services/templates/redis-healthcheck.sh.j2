@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+REDISCLI_AUTH="$(cat /run/secrets/redis-password)"
+export REDISCLI_AUTH
+response="$(redis-cli --no-auth-warning{% if data_services.tls.enabled %} --tls --cacert /run/secrets/ca.crt{% endif %} -h {{ data_services.bind_address }} -p {{ data_services.redis.port }} ping)"
+test "$response" = PONG

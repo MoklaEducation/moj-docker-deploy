@@ -1,0 +1,132 @@
+crds:
+  create: false
+
+global:
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 473
+    runAsGroup: 473
+    fsGroup: 473
+    seccompProfile: {type: RuntimeDefault}
+
+image:
+  digest: sha256:f111cce835516c5f99166342be7038496b52ced16667be5a11e19258a3e4cd30
+
+alloy:
+  enableReporting: false
+  storagePath: /tmp/alloy
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities: {drop: [ALL]}
+    readOnlyRootFilesystem: true
+    runAsNonRoot: true
+  resources:
+    requests: {cpu: 100m, memory: 128Mi}
+    limits: {cpu: 300m, memory: 384Mi}
+  mounts:
+    varlog: false
+    dockercontainers: false
+    extra:
+      - name: storage
+        mountPath: /tmp/alloy
+  configMap:
+    content: |-
+      discovery.kubernetes "pods" {
+        role = "pod"
+      }
+
+      discovery.relabel "selected_pods" {
+        targets = discovery.kubernetes.pods.targets
+
+        rule {
+          source_labels = ["__meta_kubernetes_namespace"]
+          regex = "^(kube-system|platform-system|observability|observability-agents|cert-manager|judge-test)$"
+          action = "keep"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_namespace"]
+          target_label = "namespace"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_name"]
+          target_label = "pod"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_container_name"]
+          target_label = "container"
+        }
+        rule {
+          target_label = "job"
+          replacement = "kubernetes-pods"
+        }
+      }
+
+      loki.source.kubernetes "pods" {
+        targets = discovery.relabel.selected_pods.output
+        forward_to = [loki.process.sensitive.receiver]
+      }
+
+      loki.source.kubernetes_events "selected" {
+        namespaces = ["kube-system", "platform-system", "observability", "observability-agents", "cert-manager", "judge-test"]
+        log_format = "json"
+        forward_to = [loki.process.sensitive.receiver]
+      }
+
+      loki.process "sensitive" {
+        stage.replace {
+          expression = "(?i)((?:authorization|proxy-authorization|cookie|set-cookie)[=:][[:space:]]*[^[:space:],;]+)"
+          replace = "[REDACTED_HEADER]"
+        }
+        stage.replace {
+          expression = "(?i)((?:access[_-]?token|refresh[_-]?token|token|password|passwd|secret|api[_-]?key)[=:][[:space:]]*[^[:space:],;&]+)"
+          replace = "[REDACTED_SECRET]"
+        }
+        stage.replace {
+          expression = "(?i)([?&](?:access[_-]?token|refresh[_-]?token|token|password|secret|api[_-]?key)=[^&[:space:]]+)"
+          replace = "[REDACTED_QUERY]"
+        }
+        stage.replace {
+          expression = "(?i)(\"(?:authorization|cookie|password|token|secret|api[_-]?key|request_body|user_id|email)\"[[:space:]]*:[[:space:]]*\"[^\"]*\")"
+          replace = "[REDACTED_FIELD]"
+        }
+        stage.truncate {
+          rule { limit = "64KiB" }
+        }
+        forward_to = [loki.write.local.receiver]
+      }
+
+      loki.write "local" {
+        endpoint {
+          url = "http://loki.observability.svc.cluster.local:3100/loki/api/v1/push"
+        }
+        external_labels = {cluster = "test"}
+      }
+
+rbac:
+  create: true
+  rules:
+    - apiGroups: [""]
+      resources: [pods, pods/log, namespaces]
+      verbs: [get, list, watch]
+  clusterRules:
+    - apiGroups: [""]
+      resources: [events]
+      verbs: [get, list, watch]
+
+controller:
+  type: deployment
+  replicas: 1
+  volumes:
+    extra:
+      - name: storage
+        emptyDir: {}
+
+configReloader:
+  image:
+    digest: sha256:142a1f11df8dd165f00375b0b1826aecb9c9adeb05c39855893138d7c7575ff7
+  resources:
+    requests: {cpu: 10m, memory: 32Mi}
+    limits: {cpu: 50m, memory: 64Mi}
+
+serviceMonitor:
+  enabled: false

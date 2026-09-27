@@ -78,3 +78,50 @@ DMOJ integration remains provider-agnostic at the code boundary: it uses generic
 - Pin source dependencies by commit and images by digest. Never deploy mutable `latest` tags.
 - Production secrets, client secrets, passwords, and private keys are never committed.
 - Update this document for decision changes; update the focused document only for its implementation details.
+
+## 7. Kubernetes Application Namespace Vocabulary
+
+Use `judge-platform` as the stable umbrella name for the online-judge application
+platform. Kubernetes application namespaces represent isolated environment instances
+under that umbrella:
+
+| Environment | Kubernetes namespace | Initial lifecycle |
+| --- | --- | --- |
+| Test | `judge-test` | Created first; disposable and used for qualification |
+| Production | `judge-prod` | Declared in the platform contract; created only by the production overlay after qualification |
+| Staging | `judge-staging` | Reserved naming convention; not created until a staging environment is approved |
+
+This replaces the previously planned Kubernetes namespace names `dmoj-test` and
+`dmoj-prod`. Keep implementation-specific identity in workload labels, image names, and
+component names where DMOJ remains the implementation. Use
+`app.kubernetes.io/part-of: judge-platform` to associate application resources with the
+umbrella.
+
+The namespace change does not rename the existing Compose project, Keycloak realm,
+database names, repositories, or other established `dmoj-*` identifiers. Those names
+have separate compatibility and migration concerns and require their own explicit
+decision before any change.
+
+## 8. External Platform Services Boundary
+
+Use **external platform services** for dependencies consumed by k3s workloads or add-ons
+but operated outside the cluster. The initial set comprises the existing MariaDB and
+Redis data services, MinIO-compatible test object storage, and a disposable alert webhook
+receiver. Restic is the backup client consuming object storage, not a resident service.
+
+These services extend the Phase 3 responsibility. Phase 2 continues to own only the host
+and Docker foundation; it does not deploy services. Cluster observability, certificate,
+alerting, and backup controllers remain Phase 6 add-ons inside k3s.
+
+Support three placement profiles with one declarative service contract:
+
+| Profile | Placement | Qualified claim |
+| --- | --- | --- |
+| `co-located-development` | Outside k3s on the k3s VM | Functional and repeatability testing only |
+| `isolated-test` | Dedicated VM, possibly on the same Proxmox host | VM and network isolation, not physical recovery isolation |
+| `recovery-qualified` | Backup storage outside the physical Proxmox host | Off-host backup and recovery qualification |
+
+Use Docker Compose, pinned image digests, private endpoints, and SOPS/age credentials for
+repository-managed external platform services. Moving between profiles changes target
+inventory and endpoints, not service semantics or consumer Secret names. Never claim
+same-host MinIO as off-host protection or migrate persistent state implicitly.

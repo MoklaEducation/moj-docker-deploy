@@ -1,0 +1,9 @@
+---
+- name: Converge the Phase 2 host baseline
+  hosts: platform_host
+  become: true
+  gather_facts: true
+  vars_files:
+    - "{{ platform_file }}"
+  roles:
+    - baseline

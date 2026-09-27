@@ -1,0 +1,74 @@
+---
+- name: Install non-secret data-service configuration
+  ansible.builtin.copy:
+    content: "{{ item.content }}"
+    dest: "{{ item.dest }}"
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode | default('0640') }}"
+  loop:
+    - {content: "{{ data_services_rendered_compose }}", dest: "{{ data_services_compose_path }}", owner: root, group: root}
+    - {content: "{{ data_services_rendered_mariadb }}", dest: "{{ data_services.mariadb.config_path }}/mariadb.cnf", owner: "{{ data_services.mariadb.runtime_uid }}", group: "{{ data_services.mariadb.runtime_gid }}"}
+    - {content: "{{ data_services_rendered_redis }}", dest: "{{ data_services.redis.config_path }}/redis.conf", owner: "{{ data_services.redis.runtime_uid }}", group: "{{ data_services.redis.runtime_gid }}"}
+    - {content: "{{ data_services_rendered_webhook }}", dest: "{{ external_platform_services_config_root }}/alert-receiver.py", owner: root, group: root, mode: "0555"}
+    - {content: "{{ data_services_rendered_minio_policy }}", dest: "{{ external_platform_services_config_root }}/minio-restic-policy.json", owner: root, group: root, mode: "0644"}
+  when: not ansible_check_mode
+  notify: Restart data services
+
+- name: Install Redis health check
+  ansible.builtin.copy:
+    content: "{{ lookup('ansible.builtin.template', 'redis-healthcheck.sh.j2') }}"
+    dest: "{{ data_services.redis.config_path }}/healthcheck.sh"
+    owner: "{{ data_services.redis.runtime_uid }}"
+    group: "{{ data_services.redis.runtime_gid }}"
+    mode: "0750"
+  when: not ansible_check_mode
+  notify: Restart data services
+
+- name: Validate installed Compose definition
+  ansible.builtin.command:
+    argv: [docker, compose, --project-name, "{{ data_services_project_name }}", --file, "{{ data_services_compose_path }}", config, --quiet]
+  check_mode: false
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Apply changed data-service lifecycle inputs
+  ansible.builtin.meta: flush_handlers
+
+- name: Start development data services with Docker Compose
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - --project-name
+      - "{{ data_services_project_name }}"
+      - --file
+      - "{{ data_services_compose_path }}"
+      - up
+      - --detach
+      - --remove-orphans
+      - --wait
+  register: data_services_compose_up
+  changed_when: false
+  when:
+    - not ansible_check_mode
+    - not data_services.systemd_supervision_enabled
+
+- name: Configure MinIO backup bucket and least-privilege user
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - "{{ data_services_project_name }}-minio-1"
+      - /bin/bash
+      - -ec
+      - >-
+        export MC_CONFIG_DIR=/tmp/mc;
+        export MC_HOST_mokla="http://$(cat /run/secrets/minio-root-user):$(cat /run/secrets/minio-root-password)@{{ external_platform_services.bind_address }}:{{ external_platform_services.object_storage.api_port }}";
+        mc mb --ignore-existing "mokla/{{ external_platform_services.object_storage.bucket }}" >/dev/null;
+        mc admin policy create mokla mokla-restic /opt/mokla/minio-restic-policy.json >/dev/null;
+        mc admin user add mokla "$(cat /run/secrets/minio-restic-access-key)" "$(cat /run/secrets/minio-restic-secret-key)" >/dev/null;
+        mc admin policy attach mokla mokla-restic --user "$(cat /run/secrets/minio-restic-access-key)" >/dev/null
+  changed_when: false
+  no_log: true
+  when: not ansible_check_mode

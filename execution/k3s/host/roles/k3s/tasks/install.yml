@@ -1,0 +1,96 @@
+---
+- name: Converge k3s installation state
+  when: not ansible_check_mode
+  block:
+    - name: Create restrictive k3s paths
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "{{ item.mode }}"
+      loop:
+        - {path: /srv/mokla/k3s, mode: "0700"}
+        - {path: "{{ k3s.data_dir }}", mode: "0700"}
+        - {path: "{{ k3s.local_storage_path }}", mode: "0700"}
+        - {path: "{{ k3s_config_root }}", mode: "0700"}
+
+    - name: Mark the managed storage root
+      ansible.builtin.copy:
+        content: "managed-by=moj-docker-deploy phase=4\n"
+        dest: "/srv/mokla/k3s/{{ k3s_managed_marker_name }}"
+        owner: root
+        group: root
+        mode: "0600"
+
+    - name: Download the exact k3s binary
+      ansible.builtin.get_url:
+        url: "https://github.com/k3s-io/k3s/releases/download/{{ k3s.version }}/k3s"
+        dest: "/var/tmp/k3s-{{ k3s.version }}"
+        checksum: "sha256:{{ k3s.checksum }}"
+        owner: root
+        group: root
+        mode: "0755"
+      when: not k3s_was_installed
+
+    - name: Install the verified k3s binary
+      ansible.builtin.copy:
+        src: "/var/tmp/k3s-{{ k3s.version }}"
+        dest: "{{ k3s_binary_path }}"
+        remote_src: true
+        owner: root
+        group: root
+        mode: "0755"
+      when: not k3s_was_installed
+
+    - name: Remove the temporary k3s binary
+      ansible.builtin.file:
+        path: "/var/tmp/k3s-{{ k3s.version }}"
+        state: absent
+
+    - name: Install root-only k3s configuration
+      ansible.builtin.copy:
+        content: "{{ k3s_rendered_config }}"
+        dest: "{{ k3s_config_path }}"
+        owner: root
+        group: root
+        mode: "0600"
+      register: k3s_config_install
+      notify: Restart managed k3s
+
+    - name: Record immutable cluster identity
+      ansible.builtin.copy:
+        content: "{{ k3s_immutable_identity | to_nice_json }}\n"
+        dest: "{{ k3s_identity_marker_path }}"
+        owner: root
+        group: root
+        mode: "0600"
+
+    - name: Install the project-owned k3s service
+      ansible.builtin.template:
+        src: k3s.service.j2
+        dest: "{{ k3s_service_path }}"
+        owner: root
+        group: root
+        mode: "0644"
+      register: k3s_service_install
+
+    - name: Reload systemd for the managed unit
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+      when: k3s_service_install.changed
+
+    - name: Enable and start k3s
+      ansible.builtin.systemd_service:
+        name: k3s
+        enabled: true
+        state: started
+
+    - name: Flush a required configuration restart
+      ansible.builtin.meta: flush_handlers
+
+    - name: Wait for the Kubernetes API listener
+      ansible.builtin.wait_for:
+        host: "{{ k3s.api_bind_address }}"
+        port: 6443
+        timeout: 180

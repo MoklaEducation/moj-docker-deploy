@@ -210,6 +210,13 @@ responsible for schemas, users, migrations, credentials, and data-level validati
 Exit condition: services are healthy, inaccessible from unintended networks, included in
 the backup inventory, and recoverable without depending on Kubernetes.
 
+External services later required by cluster add-ons, initially MinIO-compatible object
+storage and a test alert webhook receiver, extend this responsibility without creating a
+new numbered gate. See
+[Phase 3 External Platform Services](plan/phase-3-external-platform-services.md). The
+same declarative service model must support co-located development and a dedicated
+services VM; only storage outside the physical host qualifies as off-host recovery.
+
 ### Phase 4: k3s Installation
 
 Install a checksum-verified, pinned k3s release using explicit configuration. Establish
@@ -307,6 +314,9 @@ boundaries, interfaces, behavior, and recovery capability.
 
 Build a project-specific integration layer from maintained upstream components rather
 than creating a new k3s installer or copying an entire homelab distribution.
+
+See [Deployment Automation Strategy](plan/deployment-automation-strategy.md) for the
+comparison of orchestration approaches and the staged Mise plus Python runner plan.
 
 ### Reuse directly
 

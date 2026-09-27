@@ -1,0 +1,24 @@
+---
+- name: Install validated SSH hardening policy
+  ansible.builtin.template:
+    src: sshd-baseline.conf.j2
+    dest: /etc/ssh/sshd_config.d/00-mokla-baseline.conf
+    owner: root
+    group: root
+    mode: "0644"
+    validate: /usr/sbin/sshd -t -f %s
+  notify: Reload SSH
+
+- name: Remove the obsolete lower-precedence SSH policy
+  ansible.builtin.file:
+    path: /etc/ssh/sshd_config.d/60-mokla-baseline.conf
+    state: absent
+  notify: Reload SSH
+
+- name: Validate the complete SSH configuration before reload
+  ansible.builtin.command: sshd -t
+  check_mode: false
+  changed_when: false
+
+- name: Apply validated SSH policy before firewall changes
+  ansible.builtin.meta: flush_handlers

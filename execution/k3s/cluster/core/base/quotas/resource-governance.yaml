@@ -1,0 +1,77 @@
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: namespace-budget
+  namespace: platform-system
+spec:
+  hard:
+    requests.cpu: 500m
+    requests.memory: 512M
+    limits.cpu: "1"
+    limits.memory: 1G
+    pods: "20"
+    persistentvolumeclaims: "2"
+    local-path.storageclass.storage.k8s.io/requests.storage: 5G
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: namespace-budget
+  namespace: observability
+spec:
+  hard:
+    requests.cpu: 1500m
+    requests.memory: 3G
+    limits.cpu: "3"
+    limits.memory: 6G
+    pods: "30"
+    persistentvolumeclaims: "8"
+    local-path.storageclass.storage.k8s.io/requests.storage: 50G
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: namespace-budget
+  namespace: backup-system
+spec:
+  hard:
+    requests.cpu: 500m
+    requests.memory: 1G
+    limits.cpu: "1"
+    limits.memory: 2G
+    pods: "15"
+    persistentvolumeclaims: "4"
+    local-path.storageclass.storage.k8s.io/requests.storage: 20G
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: container-defaults
+  namespace: platform-system
+spec:
+  limits:
+    - type: Container
+      defaultRequest: {cpu: 100m, memory: 128M}
+      default: {cpu: 500m, memory: 512M}
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: container-defaults
+  namespace: observability
+spec:
+  limits:
+    - type: Container
+      defaultRequest: {cpu: 100m, memory: 128M}
+      default: {cpu: 500m, memory: 512M}
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: container-defaults
+  namespace: backup-system
+spec:
+  limits:
+    - type: Container
+      defaultRequest: {cpu: 100m, memory: 128M}
+      default: {cpu: 500m, memory: 512M}
