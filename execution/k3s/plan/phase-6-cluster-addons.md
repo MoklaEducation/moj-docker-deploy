@@ -12,9 +12,18 @@ resource-bounded release while preserving the cluster-core ownership boundary.
 ## Context and Preconditions
 
 Read the blueprint, deployment strategy, and Phase 1-5 plans. Require current passing
-Phase 5 evidence, restricted add-on automation credentials, resolved resource/storage
-budgets, DNS/challenge decisions, alert destination, retention values, and off-host backup
-destination.
+Phase 5 evidence, a passing restricted cluster-core identity, an authorized break-glass
+operator able to establish Phase 6 access, resolved resource/storage budgets,
+DNS/challenge decisions, alert destination, retention values, and off-host backup
+destination. Phase 6 creates and verifies its own add-on automation identity after the
+reviewed charts, CRDs, and rollback operations define the required permissions; an
+add-on credential is not a Phase 5 precondition.
+
+For the private test profile, consume the contracts in
+[Phase 3 External Platform Services](phase-3-external-platform-services.md): a reachable
+private webhook receiver and MinIO-compatible S3 endpoint may begin co-located outside
+k3s, then move unchanged to a dedicated services VM. Co-located object storage proves
+backup mechanics but does not satisfy the off-host resilience gate.
 
 The initial stack is:
 

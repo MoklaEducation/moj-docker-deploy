@@ -2,7 +2,7 @@
 
 Status: test environment complete; ready for Phase 6 implementation
 
-Last updated: 2026-09-26
+Last updated: 2026-09-27
 
 This document records verified Phase 5 implementation progress and accepted planning
 decisions. The normative requirements remain in
@@ -81,6 +81,12 @@ separate compatibility and migration decision.
 - RBAC and certificate issuance remain an explicit break-glass operation through
   `cluster/core/scripts/access.sh`; routine automation detects RBAC drift and cannot
   escalate its own permissions.
+- Phase 4 prerequisite checks may validate the bootstrap administrator credential that
+  Phase 4 owns. Phase 5 reconciliation itself has been proven to pass with that file
+  unavailable and uses only the restricted cluster-core credential.
+- Phase 6 owns creation of its add-on automation identity and exact add-on NetworkPolicies
+  after concrete charts, CRDs, endpoints, and ports are selected. Phase 5 intentionally
+  avoids dormant credentials and speculative egress.
 - The SOPS foundation includes a valid encrypted, deliberately unusable Secret template,
   a source schema, recipient matching, controller-side decryption validation, and no
   applied Secret or secret controller.
@@ -100,9 +106,12 @@ separate compatibility and migration decision.
 - A disposable local-path claim provisions, preserves a marker across pod recreation,
   uses the documented `Delete` reclaim behavior, and leaves no pod, Service, PVC, or PV
   smoke resource afterward.
+- Live pruning safety passes: an allowlisted stale NetworkPolicy carrying the Phase 5
+  ownership label is deleted; an equivalent unowned NetworkPolicy is refused and remains
+  present until explicit smoke cleanup; both reserved test objects are absent afterward.
 - The local-path class remains the default with `WaitForFirstConsumer` binding. Namespace
   quotas constrain claim count and storage requests.
-- The complete validation suite passes 91 tests. Python compilation, shell syntax,
+- The complete validation suite passes 95 tests. Python compilation, shell syntax,
   documentation diagnostics, and `git diff --check` pass.
 - Durable redacted evidence is written to
   `execution/k3s/.evidence/test/phase-5-cluster-core.json` and records the object

@@ -6,6 +6,7 @@ import json
 import pathlib
 import subprocess
 import sys
+import tempfile
 import time
 
 import yaml
@@ -18,6 +19,7 @@ ROUTINE_KINDS = {"Namespace", "ResourceQuota", "LimitRange", "NetworkPolicy"}
 ACCESS_KINDS = {"ClusterRole", "ClusterRoleBinding", "RoleBinding"}
 PRUNE_KINDS = {"ResourceQuota", "LimitRange", "NetworkPolicy"}
 SMOKE_PREFIX = "phase5-core-smoke"
+PRUNE_SMOKE_NAMES = ("phase5-prune-owned", "phase5-prune-unowned")
 
 
 def parse_args():
@@ -162,6 +164,84 @@ def prune_stale(kubeconfig, previous_report, desired_ids):
         run(kubeconfig, "-n", item["namespace"], "delete", item["kind"].lower(), item["name"], "--wait=true")
         pruned.append({"kind": item["kind"], "namespace": item["namespace"], "name": item["name"]})
     return pruned
+
+
+def pruning_safety_checks(platform, repository):
+    core = platform["cluster_core"]
+    namespace = core["namespaces"]["application"]
+    kubeconfig = kubeconfig_path(repository, core["identities"]["automation"])
+    owned_name, unowned_name = PRUNE_SMOKE_NAMES
+    for name in PRUNE_SMOKE_NAMES:
+        if run(kubeconfig, "-n", namespace, "get", "networkpolicy", name, check=False).returncode == 0:
+            raise RuntimeError(f"reserved pruning smoke object already exists: NetworkPolicy/{namespace}/{name}")
+
+    owned = {
+        "apiVersion": "networking.k8s.io/v1",
+        "kind": "NetworkPolicy",
+        "metadata": {
+            "name": owned_name,
+            "namespace": namespace,
+            "labels": {
+                "app.kubernetes.io/managed-by": core["managed_by"],
+                "platform.mokla/smoke": "phase5-prune",
+            },
+        },
+        "spec": {"podSelector": {"matchLabels": {"platform.mokla/prune-probe": "owned"}}, "policyTypes": ["Ingress"]},
+    }
+    unowned = {
+        "apiVersion": "networking.k8s.io/v1",
+        "kind": "NetworkPolicy",
+        "metadata": {
+            "name": unowned_name,
+            "namespace": namespace,
+            "labels": {"platform.mokla/smoke": "phase5-prune"},
+        },
+        "spec": {"podSelector": {"matchLabels": {"platform.mokla/prune-probe": "unowned"}}, "policyTypes": ["Ingress"]},
+    }
+    checks = {
+        "owned_deleted": False,
+        "unowned_refused": False,
+        "unowned_preserved": False,
+        "cleanup_complete": False,
+    }
+    try:
+        apply_documents(kubeconfig, [owned, unowned])
+        with tempfile.TemporaryDirectory(prefix="mokla-phase5-prune-") as directory:
+            report = pathlib.Path(directory) / "previous.json"
+            report.write_text(json.dumps({"managed_objects": [
+                {"kind": "NetworkPolicy", "namespace": namespace, "name": owned_name},
+            ]}), encoding="utf-8")
+            pruned = prune_stale(kubeconfig, report, set())
+            checks["owned_deleted"] = pruned == [{"kind": "NetworkPolicy", "namespace": namespace, "name": owned_name}]
+            checks["owned_deleted"] = checks["owned_deleted"] and run(
+                kubeconfig, "-n", namespace, "get", "networkpolicy", owned_name, check=False,
+            ).returncode != 0
+
+            report.write_text(json.dumps({"managed_objects": [
+                {"kind": "NetworkPolicy", "namespace": namespace, "name": unowned_name},
+            ]}), encoding="utf-8")
+            try:
+                prune_stale(kubeconfig, report, set())
+            except RuntimeError as exc:
+                checks["unowned_refused"] = "refusing to prune unowned" in str(exc)
+            checks["unowned_preserved"] = run(
+                kubeconfig, "-n", namespace, "get", "networkpolicy", unowned_name, check=False,
+            ).returncode == 0
+        if not all(value for key, value in checks.items() if key != "cleanup_complete"):
+            raise RuntimeError("one or more pruning safety assertions failed")
+    finally:
+        for name in PRUNE_SMOKE_NAMES:
+            run(
+                kubeconfig, "-n", namespace, "delete", "networkpolicy", name,
+                "--ignore-not-found=true", "--wait=true", check=False,
+            )
+        checks["cleanup_complete"] = all(
+            run(kubeconfig, "-n", namespace, "get", "networkpolicy", name, check=False).returncode != 0
+            for name in PRUNE_SMOKE_NAMES
+        )
+    if not checks["cleanup_complete"]:
+        raise RuntimeError("pruning smoke resources remain after cleanup")
+    return checks
 
 
 def can_i(kubeconfig, verb, resource, namespace=None):
@@ -377,6 +457,7 @@ def main():
             auth_checks = {}
 
         smoke_checks = smoke(platform, repository) if args.mode in ("apply", "smoke") else {}
+        pruning_checks = pruning_safety_checks(platform, repository) if args.mode in ("apply", "smoke") else {}
         storage_class = json.loads(run(
             admin_kubeconfig if not restricted_ready else kubeconfig_path(repository, platform["cluster_core"]["identities"]["automation"]),
             "get", "storageclass", platform["cluster_core"]["storage"]["class_name"], "-o", "json",
@@ -398,12 +479,14 @@ def main():
             "access_drift": access_drift,
             "authorization": auth_checks,
             "smoke": smoke_checks,
+            "pruning_safety": pruning_checks,
             "storage": storage,
             "pruned": pruned,
             "checks": [
                 {"id": "cluster_core.render", "status": "pass", "evidence": "Deterministic render and offline policy validation passed"},
                 {"id": "cluster_core.server_validation", "status": "pass", "evidence": "Server-side dry-run and diff completed"},
                 {"id": "cluster_core.access", "status": "pass" if restricted_ready else "pending", "evidence": credential_mode},
+                {"id": "cluster_core.pruning", "status": "pass" if pruning_checks else "not_run", "evidence": "Owned stale policy was deleted; unowned policy was preserved" if pruning_checks else "Mutating pruning proof runs during apply or smoke"},
             ],
             "overall_status": "pass" if restricted_ready else "bootstrap_required",
         })

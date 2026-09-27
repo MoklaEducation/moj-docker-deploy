@@ -48,9 +48,11 @@ The Phase 1-owned schema must include:
 - pod-security level and documented exemptions;
 - administrative user/group identities from the authentication mechanism available to
   k3s;
-- deployment automation identity names and namespace scope;
-- DNS, API, ingress-controller, certificate, observability, backup, and external
-  MariaDB/Redis network flows required by later phases;
+- cluster-core automation identity name and namespace scope; Phase 6 owns add-on
+  identities once concrete chart and CRD permissions are known;
+- DNS and currently known external MariaDB/Redis flows; Phase 6 owns exact API,
+  certificate, observability, alerting, and backup flows alongside the workloads that
+  require them;
 - local-path storage class policy and which namespaces may claim it;
 - SOPS age recipients and decryption location on the controller.
 
@@ -119,6 +121,9 @@ runs smoke tests.
 - Create a routine human operator identity with only documented platform operations.
 - Create separate automation identities for `cluster-core` and, later, add-on and
   application reconciliation. Do not share credentials across responsibilities.
+- Create the add-on automation identity in Phase 6 after its reviewed chart, CRD, and
+  rollback operations define the required permissions. Phase 5 does not grant a dormant
+  speculative identity.
 - Scope application deployment identities to their target namespaces; they must not
   administer nodes, CRDs, or shared platform namespaces.
 - Generate short-lived credentials where the selected mechanism supports them. If
@@ -140,9 +145,8 @@ runs smoke tests.
 
 - Establish default-deny ingress and egress in managed non-system namespaces.
 - Add explicit egress for DNS.
-- Add only the baseline flows needed for Phase 6 control-plane/API interaction,
-  certificate challenges, monitoring scrapes, log delivery, backup destinations, and
-  host data services.
+- Add only currently known host data-service flows. Phase 6 adds control-plane/API,
+  certificate, scrape, log, alert, and backup flows atomically with each owning release.
 - Do not pre-authorize arbitrary internet egress or cross-namespace communication.
 - Policy selectors must rely on labels managed by this repository.
 - Exercise allowed and denied traffic with disposable pods. Manifest rendering alone is
@@ -179,6 +183,9 @@ runs smoke tests.
 - Use server-side dry-run and a diff before apply.
 - Label all managed objects and restrict pruning to an explicit allowlist and ownership
   selector. Never prune cluster/system or application resources by broad namespace.
+- Prove pruning with disposable objects: an allowlisted stale object carrying the Phase 5
+  ownership label is deleted, while the equivalent unowned object is refused and remains
+  until explicit smoke cleanup.
 - Apply CRDs only in the phase that owns the corresponding add-on.
 - Remove disposable smoke resources even after a failed test, without deleting retained
   evidence.
@@ -217,7 +224,10 @@ Prove:
 6. A local-path PVC behaves as documented and leaves no smoke resources afterward.
 7. No decrypted secret persists in Git, temporary repository files, logs, or evidence.
 8. The second apply and subsequent check show no unexplained drift.
-9. Bootstrap administrator credentials are no longer used by routine check/apply paths.
+9. Phase 5 reconciliation succeeds with only its restricted automation credential.
+  Earlier prerequisite phases may validate credentials they own; bootstrap-admin use
+  within Phase 5 remains limited to initial identity/RBAC establishment, deliberate
+  RBAC updates, certificate renewal, and recovery.
 
 Run Kustomize render, YAML/schema/policy lint, server-side dry-run, authorization tests,
 and disposable workload smoke tests.
@@ -231,8 +241,9 @@ overall status. Redact subjects if their disclosure is sensitive; never include 
 kubeconfig client keys.
 
 Phase 5 completes only when all core objects are deterministic, restricted credentials
-replace routine bootstrap-admin use, enforcement tests pass, no secrets leak, and Phase 6
-can install add-ons through documented identities and policies.
+replace bootstrap-admin for routine Phase 5 reconciliation, enforcement and pruning
+tests pass, no secrets leak, and Phase 6 has a documented contract for creating its own
+identities and policies.
 
 ## Non-Goals
 

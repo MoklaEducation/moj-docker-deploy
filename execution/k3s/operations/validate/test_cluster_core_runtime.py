@@ -4,7 +4,9 @@
 import importlib.util
 import pathlib
 import sys
+import tempfile
 import unittest
+from unittest import mock
 
 import yaml
 
@@ -55,6 +57,27 @@ subjects: [{kind: Group, name: example, apiGroup: rbac.authorization.k8s.io}]
         ]
         selected = MODULE.documents_with_existing_namespaces(documents, set())
         self.assertEqual(["Namespace", "ClusterRole"], [item["kind"] for item in selected])
+
+    def test_prune_stale_deletes_owned_allowlisted_object(self):
+        with tempfile.TemporaryDirectory() as directory:
+            report = pathlib.Path(directory) / "previous.json"
+            report.write_text('{"managed_objects":[{"kind":"NetworkPolicy","namespace":"judge-test","name":"stale"}]}', encoding="utf-8")
+            responses = [
+                mock.Mock(returncode=0, stdout='{"metadata":{"labels":{"app.kubernetes.io/managed-by":"mokla-cluster-core"}}}'),
+                mock.Mock(returncode=0, stdout=""),
+            ]
+            with mock.patch.object(MODULE, "run", side_effect=responses):
+                pruned = MODULE.prune_stale("kubeconfig", report, set())
+        self.assertEqual([{"kind": "NetworkPolicy", "namespace": "judge-test", "name": "stale"}], pruned)
+
+    def test_prune_stale_refuses_unowned_object(self):
+        with tempfile.TemporaryDirectory() as directory:
+            report = pathlib.Path(directory) / "previous.json"
+            report.write_text('{"managed_objects":[{"kind":"NetworkPolicy","namespace":"judge-test","name":"stale"}]}', encoding="utf-8")
+            response = mock.Mock(returncode=0, stdout='{"metadata":{"labels":{}}}')
+            with mock.patch.object(MODULE, "run", return_value=response):
+                with self.assertRaisesRegex(RuntimeError, "refusing to prune unowned"):
+                    MODULE.prune_stale("kubeconfig", report, set())
 
 
 if __name__ == "__main__":

@@ -25,6 +25,19 @@ class ClusterCoreReportTests(unittest.TestCase):
         self.assertEqual("bootstrap_required", report["overall_status"])
         self.assertFalse(report["restricted_credentials_ready"])
 
+    def test_check_retains_latest_mutating_qualification(self):
+        existing = {
+            "network_storage_smoke": {"cleanup_complete": True},
+            "pruning_safety": {"owned_deleted": True, "unowned_refused": True},
+        }
+        report = MODULE.build_report(
+            "test", "check", {},
+            {"overall_status": "pass", "smoke": {}, "pruning_safety": {}},
+            existing,
+        )
+        self.assertEqual(existing["network_storage_smoke"], report["network_storage_smoke"])
+        self.assertEqual(existing["pruning_safety"], report["pruning_safety"])
+
 
 if __name__ == "__main__":
     unittest.main()

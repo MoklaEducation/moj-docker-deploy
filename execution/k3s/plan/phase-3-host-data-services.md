@@ -63,6 +63,12 @@ Read, in order:
 3. [Phase 1 Preflight](phase-1-preflight.md)
 4. [Phase 2 Host Baseline](phase-2-host-baseline.md)
 
+MinIO, the test alert receiver, and future services consumed by k3s but operated outside
+the cluster are governed by the companion
+[Phase 3 External Platform Services](phase-3-external-platform-services.md) extension.
+That extension reuses this phase's Docker, SOPS/age, private endpoint, and repeatability
+patterns without changing MariaDB/Redis ownership.
+
 If a conflict exists, the blueprint wins, followed by the deployment strategy, followed
 by this plan.
 
